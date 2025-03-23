@@ -14,20 +14,25 @@ defmodule IrohExTest do
 
     IO.inspect(ticket, label: "Node1 ticket")
 
-    node1_ref = Native.create_node(self())
-    node2_ref = Native.create_node(self())
-    node3_ref = Native.create_node(self())
-    node4_ref = Native.create_node(self())
+    count = 2
 
-    assert is_reference(node1_ref)
+    Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
-    nodes = [node1_ref, node2_ref, node3_ref, node4_ref]
+    nodes =
+      Enum.map(1..count, fn _ ->
+        Native.create_node(self())
+      end)
 
-    Enum.each(nodes, fn node -> Native.connect_node(node, ticket) end)
+    tasks =
+      Enum.map(nodes, fn node ->
+        Task.async(fn -> Native.connect_node(node, ticket) end)
+      end)
+
+    # Enum.each(tasks, &Task.await/1)
 
     Process.sleep(2000)
 
-    Enum.each(1..100, fn x ->
+    Enum.each(1..1000, fn x ->
       node = Enum.random(nodes)
 
       node

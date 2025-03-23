@@ -95,6 +95,7 @@ pub struct NodeState {
     pub pid: LocalPid,
     pub endpoint: Endpoint,
     pub router: Router,
+    pub gossip: Gossip,
     pub sender: GossipSender,
     // pub receiver: Arc<RwLock<GossipReceiver>>,
     // pub event_sender: mpsc::Sender<CentralEvent>,
@@ -107,6 +108,7 @@ impl NodeState {
         pid: LocalPid,
         endpoint: Endpoint,
         router: Router,
+        gossip: Gossip,
         sender: GossipSender,
         // receiver: Arc<RwLock<GossipReceiver>>
         // manager: Manager,
@@ -118,6 +120,7 @@ impl NodeState {
             pid,
             endpoint,
             router,
+            gossip,
             sender,
             // receiver
             // manager,
@@ -231,7 +234,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     //     .block_on(conn.open_bi())
     //     .map_err(|e| RustlerError::Term(Box::new(format!("Conn open error: {}", e))))?;
 
-    let state = NodeState::new(pid, endpoint_clone, router_clone, sender);
+    let state = NodeState::new(pid, endpoint_clone, router_clone, gossip, sender);
     let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
 
     Ok(resource)
@@ -319,6 +322,11 @@ pub fn connect_node(
         endpoint.sender.clone()
     };
 
+    let gossip = {
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.gossip.clone()
+    };
+
     let builder = Endpoint::builder();
 
     let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
@@ -333,6 +341,17 @@ pub fn connect_node(
             })?;
         }
     };
+
+    let topic = RUNTIME
+        .block_on(async { gossip.subscribe_and_join(topic, node_ids).await })
+        // .block_on(async { gossip.subscribe(topic, node_ids) })
+        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+
+    println!("Connected!");
+
+    // let topic = gossip.subscribe(id, node_ids).map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+
+    let (sender, receiver) = topic.split();
 
     Ok(())
 }
@@ -555,7 +574,7 @@ impl FromStr for Ticket {
 
 fn on_load(env: Env, _info: Term) -> bool {
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::new("iroh=debug,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
+        .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
