@@ -1,0 +1,77 @@
+use rioh::{Node, Config, Router, Relay, Protocol, BlobStore, DocStore};
+use rustler::{Env, LocalPid, NifResult, ResourceArc};
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+
+/// The main P2P struct with relay support
+struct RiohP2P {
+    node: Node,
+    router: Router,
+    relay: Relay,
+    protocol: Protocol,
+    blob_store: BlobStore,
+    doc_store: DocStore,
+    pid: LocalPid, // Elixir process receiving messages
+}
+
+/// Rustler wrapper
+struct WrappedP2P(Arc<Mutex<RiohP2P>>);
+impl rustler::resource::ResourceTypeProvider for WrappedP2P {
+    fn name() -> &'static str {
+        "rioh_p2p"
+    }
+}
+
+/// Initialize Rustler
+#[rustler::init]
+fn init(env: Env) {
+    rustler::resource!(WrappedP2P, env);
+}
+
+/// Start the P2P node with relays
+#[rustler::nif]
+fn start_p2p(namespace: String, relay_address: Option<String>, pid: LocalPid) -> NifResult<ResourceArc<WrappedP2P>> {
+    let config = Config::default();
+    let node = Node::new(namespace.clone(), config).map_err(|_| rustler::Error::BadArg)?;
+    
+    let router = node.create_router().unwrap();
+    let relay = match relay_address {
+        Some(addr) => node.create_relay(Some(addr)).unwrap(), // External relay
+        None => node.create_relay(None).unwrap(), // Auto-configured relay
+    };
+
+    let protocol = node.create_protocol().unwrap();
+    let blob_store = node.create_blob_store().unwrap();
+    let doc_store = node.create_doc_store().unwrap();
+
+    let wrapped = Arc::new(Mutex::new(RiohP2P { node, router, relay, protocol, blob_store, doc_store, pid }));
+
+    // Spawn async task to handle incoming relay messages
+    let wrapped_clone = wrapped.clone();
+    tokio::spawn(async move {
+        let mut receiver = wrapped_clone.lock().unwrap().relay.subscribe().await.unwrap();
+        while let Some(msg) = receiver.recv().await {
+            let env = pid.get_env();
+            let _ = pid.send(env, msg);
+        }
+    });
+
+    Ok(ResourceArc::new(WrappedP2P(wrapped)))
+}
+
+/// Register a node to use a relay
+#[rustler::nif]
+fn register_with_relay(resource: ResourceArc<WrappedP2P>, relay_address: String) -> NifResult<()> {
+    let lock = resource.0.lock().unwrap();
+    lock.relay.register(relay_address).map_err(|_| rustler::Error::BadArg)?;
+    Ok(())
+}
+
+/// Get connected relay peers
+#[rustler::nif]
+fn get_relay_peers(resource: ResourceArc<WrappedP2P>) -> NifResult<Vec<String>> {
+    let lock = resource.0.lock().unwrap();
+    let peers = lock.relay.get_peers().map_err(|_| rustler::Error::BadArg)?;
+    Ok(peers)
+}
+
