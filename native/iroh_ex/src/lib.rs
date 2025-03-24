@@ -502,7 +502,7 @@ impl FromStr for Ticket {
 
 fn on_load(env: Env, _info: Term) -> bool {
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
+        .with_env_filter(EnvFilter::new("iroh=debug,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
