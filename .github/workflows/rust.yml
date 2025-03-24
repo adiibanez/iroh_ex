@@ -8,6 +8,14 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TOOLCHAIN: nightly
+  CARGO_CACHE_PATH: |
+    ~/.cargo/.crates.toml
+    ~/.cargo/.crates2.json
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
 
 jobs:
   build:
@@ -16,6 +24,42 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Install Rust Nightly (Explicit Version)
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.TOOLCHAIN }}
+        # llvm-tools-preview stuff is essential, breaks the build otherwise
+        components: rust-src, llvm-tools-preview
+
+    # - name: Install Rust Nightly (Explicit Version) 3rd tier
+    #   shell: bash
+    #   run: |
+    #     rustup toolchain install nightly
+    #     # --target ${{ matrix.platform.rust_target }}
+    #     # --profile minimal
+    #     rustup component add rust-src --toolchain nightly
+
+    - name: Check LLVM Bitcode Support
+      run: |
+        rustc -C embed-bitcode=yes --print cfg
+
+    - name: Show Rustup Info
+      run: |
+        rustup show
+        echo "TOOLCHAIN: ${{ env.TOOLCHAIN }}"
+
+    - name: Install LLVM tools
+      if: runner.os == 'macOS'
+      continue-on-error: true
+      run: rustup component add llvm-tools-preview
+
+    - name: Rust Cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.CARGO_CACHE_PATH }}
+        key: cargo-${{ github.workflow }}-${{ github.job }}-${{runner.os}}-${{runner.arch}}
+
     - name: Build
       run: |
         cd native/iroh_ex

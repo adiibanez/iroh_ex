@@ -14,28 +14,100 @@ on:
 permissions:
   contents: read
 
+env: 
+  CARGO_TERM_COLOR: always
+  TOOLCHAIN: nightly
+  CARGO_CACHE_PATH: |
+    ~/.cargo/.crates.toml
+    ~/.cargo/.crates2.json
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+
 jobs:
   build:
-
+    strategy: 
+      matrix: 
+        platform: [ubuntu-latest, macos-latest]
     name: Build and test
-    runs-on: ubuntu-latest
-    env: 
-      ImageOS: ubuntu22
+    runs-on: ${{matrix.platform}}
 
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Elixir
-      uses: erlef/setup-beam@61e01a43a562a89bfc54c7f9a378ff67b03e4a21 # v1.16.0
+
+    - name: Install Rust Nightly (Explicit Version)
+      uses: dtolnay/rust-toolchain@master
       with:
-        elixir-version: '1.18.3' # [Required] Define the Elixir version
-        otp-version: '27.3'      # [Required] Define the Erlang/OTP version
+        toolchain: ${{ env.TOOLCHAIN }}
+        # llvm-tools-preview stuff is essential, breaks the build otherwise
+        components: rust-src, llvm-tools-preview
+
+    - name: Show Rustup Info
+      run: |
+        rustup show
+        echo "TOOLCHAIN: ${{ env.TOOLCHAIN }}"
+
+    - name: Install LLVM tools
+      if: runner.os == 'macOS'
+      continue-on-error: true
+      run: rustup component add llvm-tools-preview
+
+    - name: Rust Cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.CARGO_CACHE_PATH }}
+        key: cargo-${{ github.workflow }}-${{ github.job }}-${{runner.os}}-${{runner.arch}}
+    
+    - name: Cache ASDF and Toolchains
+      uses: actions/cache@v4
+      id: asdf-cache
+      with:
+        path: ~/.asdf
+        key: asdf-cache-${{ runner.os }}-${{ hashFiles('.tool-versions') }}
+        restore-keys: |
+          asdf-cache-${{ runner.os }}-
+          
+    - name: Setup asdf env
+      id: asdf-setup
+      run: |
+        echo PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH" >> "$GITHUB_ENV"
+    - name: Setup asdf
+      uses: asdf-vm/actions/setup@master
+    
+    - name: Install CD tools from .tool-versions
+      continue-on-error: true
+      if: steps.asdf-cache.outputs.cache-hit != 'true'
+      uses: asdf-vm/actions/install@master
+    - name: Test asdf tools
+      id: asdf-test
+      run: |
+        erl -version
+        elixir --version
+        mix --version
+
+    - name: Ensure mix dependencies
+      shell: bash
+      run: mix deps.get
+
+    # save even if later jobs fail
+    - name: Cache ASDF and Toolchains
+      uses: actions/cache/save@v4
+      if: steps.asdf-cache.outputs.cache-hit != 'true'
+      id: asdf-cache-save
+      with:
+        path: ~/.asdf
+        key: asdf-cache-${{ runner.os }}-${{ hashFiles('.tool-versions') }}
+
     - name: Restore dependencies cache
       uses: actions/cache@v3
       with:
         path: deps
         key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
         restore-keys: ${{ runner.os }}-mix-
+
     - name: Install dependencies
       run: mix deps.get
+
     - name: Run tests
       run: mix test
