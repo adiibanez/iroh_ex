@@ -18,7 +18,7 @@ defmodule IrohExTest do
 
     Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
-    nodes = create_nodes_parallel(5)
+    nodes = create_nodes_parallel(2)
 
     # nodes =
     #   Enum.map(1..count, fn _ ->

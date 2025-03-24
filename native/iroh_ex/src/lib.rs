@@ -63,6 +63,8 @@ pub static RUNTIME: Lazy<Runtime> =
 
 const ALPN: &[u8] = b"iroh-example/echo/0";
 
+const TOPIC_NAME: &str = "ehaaöskdjfasdjföasdjföa";
+
 // const topic_bytes = rand::random();
 // static topic_bytes: [u8; 32] = rand::random();
 
@@ -196,7 +198,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     let topic = RUNTIME
         .block_on(async {
             gossip.subscribe(
-                TopicId::from_bytes(string_to_32_byte_array("test")),
+                TopicId::from_bytes(string_to_32_byte_array(TOPIC_NAME)),
                 node_ids,
             )
         })
@@ -287,7 +289,7 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
         endpoint.endpoint.clone()
     };
 
-    let topic = TopicId::from_bytes(string_to_32_byte_array("test"));
+    let topic = TopicId::from_bytes(string_to_32_byte_array(TOPIC_NAME));
 
     let node_addr = RUNTIME
         .block_on(endpoint.node_addr())
