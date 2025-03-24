@@ -12,6 +12,7 @@
 use iroh::endpoint;
 use rustler::{Encoder, Env, Error as RustlerError, LocalPid, OwnedEnv, ResourceArc, Term};
 
+use atty::Stream;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::FmtSubscriber;
 
@@ -52,6 +53,8 @@ use iroh_gossip::{
     proto::TopicId,
     ALPN as GossipALPN,
 };
+
+use iroh::discovery::DiscoveryItem;
 
 use serde::{Deserialize, Serialize};
 
@@ -105,6 +108,7 @@ fn add(a: i64, b: i64) -> i64 {
 }
 
 pub struct NodeRef(pub(crate) Arc<Mutex<NodeState>>);
+
 pub struct NodeState {
     pub pid: LocalPid,
     pub endpoint: Endpoint,
@@ -277,22 +281,28 @@ pub fn connect_node(
     node_ref: ResourceArc<NodeRef>,
     ticket: String,
 ) -> Result<ResourceArc<NodeRef>, RustlerError> {
+
     let resource_arc = node_ref.0.clone();
 
     let Ticket { topic, nodes } = Ticket::from_str(&ticket.to_string())
         .map_err(|e| RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e))))?;
-
-    println!("connect_node: {:?} {:?}", topic, nodes);
 
     let endpoint_conn = {
         let endpoint_conn = resource_arc.lock().unwrap();
         endpoint_conn.endpoint.clone()
     };
 
+    tracing::info!("connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}", &endpoint_conn as *const _, topic, nodes);
+
     let gossip = {
         let endpoint = resource_arc.lock().unwrap();
         endpoint.gossip.clone()
     };
+
+    let endpoint_clone = endpoint_conn.clone();
+    RUNTIME.spawn(async move {
+        log_discovery_stream(endpoint_clone);
+    });
 
     let builder = Endpoint::builder();
 
@@ -308,6 +318,8 @@ pub fn connect_node(
             })?;
         }
     };
+
+    // let connection = endpoint_conn.connect();
 
     let topic = RUNTIME
         .block_on(async {
@@ -405,6 +417,22 @@ impl ProtocolHandler for Echo {
     }
 }
 
+
+async fn log_discovery_stream(endpoint: Endpoint) {
+    let mut stream = endpoint.discovery_stream();
+
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(node_addr) => {
+                tracing::info!("🔍 Discovered Node: {:?}", node_addr);
+            }
+            Err(lagged) => {
+                tracing::warn!("🚨 Discovery stream lagged! Some items may have been lost.{:?}", lagged);
+            }
+        }
+    }
+}
+
 //async fn subscribe_loop(mut receiver: GossipReceiver) -> Result<()> {
 async fn subscribe_loop(mut receiver: GossipReceiver) -> Result<()> {
     // let receiver_guard = receiver.read().await;
@@ -485,8 +513,12 @@ impl FromStr for Ticket {
 // Rustler init
 
 fn on_load(env: Env, _info: Term) -> bool {
+    // check if pretty terminal or log file
+    let is_tty = atty::is(Stream::Stdout);
+
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
+        .with_ansi(is_tty)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");

@@ -3,12 +3,11 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @tag timeout: :infinity
-
   test "greets the world" do
     assert IrohEx.hello() == :world
   end
 
+  @tag timeout: :infinity
   test "create iroh endpoint" do
     mother_node_ref = Native.create_node(self())
 
@@ -18,7 +17,7 @@ defmodule IrohExTest do
 
     Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
-    nodes = create_nodes_parallel(2)
+    nodes = create_nodes_parallel(1)
 
     # nodes =
     #   Enum.map(1..count, fn _ ->

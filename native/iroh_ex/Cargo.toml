@@ -18,8 +18,10 @@ rustler = { git = "https://github.com/filmor/rustler.git", rev = "17740a6dc39c79
 # , default-features = false, features = ["staticlib", "derive", "nif_version_2_15"]
 iroh = {version = "0.34.0", features = ["discovery-local-network"]}
 
-iroh-gossip = { git = "https://github.com/n0-computer/iroh-gossip.git", rev = "8064448e7923960931728c256877138f33ca8282"}
-#iroh-gossip = "0.34.0"
+# , rev = "8064448e7923960931728c256877138f33ca8282"
+# , rev = "22bf681a7db49da735c25ca831cd94c206e53a48"
+#iroh-gossip = { git = "https://github.com/n0-computer/iroh-gossip.git", rev = "22bf681a7db49da735c25ca831cd94c206e53a48"}
+iroh-gossip = "0.34.1"
 iroh-blobs = "0.34.0"
 iroh-docs = {version = "0.34.0", features = ["rpc"]}
 quic-rpc = "0.19.0"
@@ -36,5 +38,6 @@ tracing = "0.1.41"
 once_cell = "1.19"
 lazy_static = "1.3.0"
 clap = "4.5.32"
+atty = "0.2.14"
 
 
