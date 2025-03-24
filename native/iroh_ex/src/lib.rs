@@ -282,65 +282,68 @@ pub fn connect_node(
     ticket: String,
 ) -> Result<ResourceArc<NodeRef>, RustlerError> {
 
+    let node_ref_clone = node_ref.clone();
+    RUNTIME.spawn(async move {
+        if let Err(e) = async_work(node_ref_clone, ticket).await {
+            tracing::error!("❌ Error in async task: {:?}", e);
+        }
+    });
+
+    // Return immediately, allowing Elixir's Task to execute in parallel
+    Ok(node_ref)
+}
+
+
+async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<(), RustlerError> {
     let resource_arc = node_ref.0.clone();
 
-    let Ticket { topic, nodes } = Ticket::from_str(&ticket.to_string())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e))))?;
+    let Ticket { topic, nodes } = Ticket::from_str(&ticket)
+        .map_err(|e| RustlerError::Term(Box::new(format!("❌ Ticket parsing error: {}", e))))?;
 
     let endpoint_conn = {
         let endpoint_conn = resource_arc.lock().unwrap();
         endpoint_conn.endpoint.clone()
     };
 
-    tracing::info!("connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}", &endpoint_conn as *const _, topic, nodes);
-
     let gossip = {
         let endpoint = resource_arc.lock().unwrap();
         endpoint.gossip.clone()
     };
 
-    let endpoint_clone = endpoint_conn.clone();
-    RUNTIME.spawn(async move {
-        log_discovery_stream(endpoint_clone);
-    });
-
-    let builder = Endpoint::builder();
+    tracing::info!("connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}", &endpoint_conn as *const _, topic, nodes);
 
     let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
     if nodes.is_empty() {
-        println!("> waiting for nodes to join us...");
+        tracing::info!("> Waiting for nodes...");
     } else {
-        println!("> trying to connect to {} nodes...", nodes.len());
-        // add the peer addrs from the ticket to our endpoint's addressbook so that they can be dialed
-        for node in nodes.into_iter() {
+        for node in nodes {
             endpoint_conn.add_node_addr(node).map_err(|e| {
-                RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e)))
+                RustlerError::Term(Box::new(format!("❌ Failed to add node: {}", e)))
             })?;
         }
+    }
+
+    // 🛠 **Fix: Correctly handle the timeout and subscription errors**
+    let topic_result = timeout(Duration::from_secs(5), gossip.subscribe_and_join(topic, node_ids)).await;
+
+    let topic = match topic_result {
+        Err(_) => {
+            return Err(RustlerError::Term(Box::new("⏳ Gossip timeout".to_string())));
+        }
+        Ok(Err(e)) => {
+            return Err(RustlerError::Term(Box::new(format!("❌ Gossip subscribe error: {:?}", e))));
+        }
+        Ok(Ok(topic)) => topic,
     };
 
-    // let connection = endpoint_conn.connect();
-
-    let topic = RUNTIME
-        .block_on(async {
-            timeout(
-                Duration::from_secs(5),
-                gossip.subscribe_and_join(topic, node_ids),
-            )
-            .await
-        })
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip timeout: {:?}", e))))? // Convert timeout error
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip subscribe error: {:?}", e))))?; // Convert subscribe error
-
     let (sender, mut receiver) = topic.split();
-
     let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<Event>(100);
     let mpsc_event_receiver = Arc::new(RwLock::new(mpsc_event_receiver));
     let mpsc_event_receiver_clone = mpsc_event_receiver.clone();
 
+    // 🔄 **Gossip Event Listener**
     RUNTIME.spawn(async move {
         tracing::info!("🎧 Listening for gossip events...");
-
         loop {
             match receiver.next().await {
                 Some(Ok(event)) => {
@@ -352,50 +355,51 @@ pub fn connect_node(
                 Some(Err(e)) => {
                     tracing::error!("❌ Error receiving gossip event: {:?}", e);
                     tracing::info!("🔄 Restarting event handler in 2s...");
-                    sleep(Duration::from_secs(2)).await; // Delay before retrying
+                    sleep(Duration::from_secs(2)).await;
                 }
                 None => {
                     tracing::warn!("⚠️ Gossip event stream ended. Reconnecting...");
-                    sleep(Duration::from_secs(2)).await; // Delay before retrying
+                    sleep(Duration::from_secs(2)).await;
                 }
             }
         }
     });
 
+    // 🔄 **Message Processing Loop**
     RUNTIME.spawn(async move {
         let mut names = HashMap::new();
         let mut receiver = mpsc_event_receiver_clone.write().await;
-        // iterate over all events
-        let result: Result<(), anyhow::Error> = async {
-            while let Some(event) = receiver.recv().await {
-                tracing::debug!("subscribe loop received event {:?}", event);
 
-                if let Event::Gossip(GossipEvent::Received(msg)) = event {
-                    match Message::from_bytes(&msg.content)? {
-                        Message::AboutMe { from, name } => {
-                            names.insert(from, name.clone());
-                            tracing::info!("> {} MSG {}", from.fmt_short(), name);
+        while let Some(event) = receiver.recv().await {
+            tracing::debug!("📩 Received event: {:?}", event);
+
+            if let Event::Gossip(GossipEvent::Received(msg)) = event {
+                match Message::from_bytes(&msg.content) {
+                    Ok(message) => {
+                        match message {
+                            Message::AboutMe { from, name } => {
+                                names.insert(from, name.clone());
+                                tracing::info!("💬 {} MSG {}", from.fmt_short(), name);
+                            }
+                            Message::Message { from, text } => {
+                                let name = names.get(&from).map_or_else(|| from.fmt_short(), String::to_string);
+                                tracing::info!("📝 {}: {}", name, text);
+                            }
                         }
-                        Message::Message { from, text } => {
-                            let name = names
-                                .get(&from)
-                                .map_or_else(|| from.fmt_short(), String::to_string);
-                            tracing::info!("{}: {}", name, text);
-                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to parse message: {:?}", e);
                     }
                 }
             }
-            Ok(())
-        }
-        .await;
-
-        if let Err(e) = result {
-            tracing::error!("Error processing events: {:?}", e);
         }
     });
 
-    Ok(node_ref)
+    Ok(())
 }
+
+
+
 
 // The protocol definition:
 #[derive(Debug, Clone)]
@@ -517,7 +521,7 @@ fn on_load(env: Env, _info: Term) -> bool {
     let is_tty = atty::is(Stream::Stdout);
 
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
+        .with_env_filter(EnvFilter::new("iroh=error,iroh_ex=info")) // Enable DEBUG for `iroh_ex`
         .with_ansi(is_tty)
         .finish();
 

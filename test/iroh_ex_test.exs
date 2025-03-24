@@ -17,7 +17,9 @@ defmodule IrohExTest do
 
     Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
-    nodes = create_nodes_parallel(1)
+    nodes = create_nodes_parallel(50)
+
+    IO.inspect(nodes, label: "Node list")
 
     # nodes =
     #   Enum.map(1..count, fn _ ->
@@ -25,16 +27,19 @@ defmodule IrohExTest do
     #   end)
 
     tasks =
-      Enum.map(nodes, fn node ->
-        Task.async(fn -> Native.connect_node(node, ticket) end)
+      Enum.map(nodes, fn n ->
+        IO.inspect(n, label: "Connect Node ref")
+        Task.async(fn -> Native.connect_node(n, ticket) end)
       end)
 
     Enum.each(tasks, &Task.await/1)
 
-    # Process.sleep(1000)
+    Process.sleep(1000)
 
-    Enum.each(1..10, fn x ->
+    Enum.each(1..10000, fn x ->
       node = Enum.random(nodes)
+
+      IO.inspect(node, label: "Send msg Node ref")
 
       node
       |> Native.send_message("Elixir: Message #{inspect(x)}")
@@ -45,7 +50,7 @@ defmodule IrohExTest do
       # end)
     end)
 
-    Process.sleep(5000)
+    Process.sleep(2000)
 
     assert IrohEx.hello() == :world
   end
@@ -68,6 +73,7 @@ defmodule IrohExTest do
           acc
       end
     end)
+    |> dbg()
     # Maintain original order
     |> Enum.reverse()
   end
