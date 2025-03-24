@@ -220,16 +220,44 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
 
     let (sender, mut receiver) = topic.split();
 
+    let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<Event>(100);
+    let mpsc_event_receiver = Arc::new(RwLock::new(mpsc_event_receiver));
+    let mpsc_event_receiver_clone = mpsc_event_receiver.clone();
+
     // Broadcast a messsage to the topic.
     // Since no one else is apart of this topic,
     // this message is currently going out to no one.
 
     RUNTIME.spawn(async move {
+        tracing::info!("🎧 Listening for gossip events...");
+
+        while let Some(event_result) = receiver.next().await {
+            match event_result {
+                Ok(event) => {
+                    tracing::debug!("🔔 Gossip Event: {:?}", event);
+
+                    if let Err(e) = mpsc_event_sender.send(event).await {
+                        tracing::debug!("⚠️ Failed to forward event: {:?}", e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("❌ Failed to receive event: {:?}", e);
+                    break; // Exit loop on error
+                }
+            }
+        }
+
+        tracing::debug!("📴 Gossip event handler closed");
+    });
+
+    RUNTIME.spawn(async move {
         let mut names = HashMap::new();
+        let mut receiver = mpsc_event_receiver_clone.write().await;
         // iterate over all events
         let result: Result<(), anyhow::Error> = async {
-            while let Some(event) = receiver.try_next().await? {
-                tracing::info!("Received event {:?}", event);
+            while let Some(event) = receiver.recv().await {
+                tracing::debug!("subscribe loop received event {:?}", event);
 
                 if let Event::Gossip(GossipEvent::Received(msg)) = event {
                     match Message::from_bytes(&msg.content)? {
