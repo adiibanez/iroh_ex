@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, timeout, Duration};
 
 use std::fmt;
 use std::str::FromStr;
@@ -111,10 +111,6 @@ pub struct NodeState {
     pub router: Router,
     pub gossip: Gossip,
     pub sender: GossipSender,
-    // pub receiver: Arc<RwLock<GossipReceiver>>,
-    // pub event_sender: mpsc::Sender<CentralEvent>,
-    // pub event_receiver: Arc<RwLock<mpsc::Receiver<CentralEvent>>>,
-    // pub discovered_peripherals: Arc<Mutex<HashMap<String, ResourceArc<PeripheralRef>>>>,
 }
 
 impl NodeState {
@@ -124,11 +120,6 @@ impl NodeState {
         router: Router,
         gossip: Gossip,
         sender: GossipSender,
-        // receiver: Arc<RwLock<GossipReceiver>>
-        // manager: Manager,
-        // adapter: Adapter,
-        // event_sender: mpsc::Sender<CentralEvent>,
-        // event_receiver: Arc<RwLock<mpsc::Receiver<CentralEvent>>>,
     ) -> Self {
         NodeState {
             pid,
@@ -136,12 +127,6 @@ impl NodeState {
             router,
             gossip,
             sender,
-            // receiver
-            // manager,
-            // adapter,
-            // event_sender,
-            // event_receiver,
-            // discovered_peripherals: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -168,7 +153,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
         .block_on(
             Endpoint::builder()
                 .discovery_local_network()
-                // .discovery_n0()
+                .discovery_n0()
                 .bind(),
         )
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -196,16 +181,12 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
         .block_on(router.endpoint().node_addr())
         .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
 
-    let node_ids = vec![];
+    let node_ids: Vec<_> = vec![];
 
     // Subscribe to the topic.
     // Since the `node_ids` list is empty, we will
     // subscribe to the topic, but not attempt to
     // connect to any other nodes.
-
-    // let topic =RUNTIME
-    //     .block_on(gossip.subscribe(id, node_ids))
-    //     .map_err(|e| RustlerError::Term(Box::new(format!("Gossip subscribe error: {}", e))))?;
 
     let topic = RUNTIME
         .block_on(async {
@@ -216,17 +197,137 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
         })
         .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
 
-    // let topic = gossip.subscribe(id, node_ids).map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+    let (sender, _receiver) = topic.split();
+
+    let state = NodeState::new(pid, endpoint_clone, router_clone, gossip, sender);
+    let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
+
+    Ok(resource)
+}
+
+#[rustler::nif]
+pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String, RustlerError> {
+    println!("Create ticket");
+
+    let resource_arc = node_ref.0.clone();
+
+    let endpoint = {
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.endpoint.clone()
+    };
+
+    let topic = TopicId::from_bytes(string_to_32_byte_array(&*TOPIC_NAME.to_string()));
+
+    let node_addr = RUNTIME
+        .block_on(endpoint.node_addr())
+        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
+
+    let ticket = {
+        // Get our address information, includes our
+        // `NodeId`, our `RelayUrl`, and any direct
+        // addresses.
+        let me = node_addr;
+        let nodes = vec![me];
+        Ticket { topic, nodes }
+    };
+
+    Ok(ticket.to_string())
+}
+
+#[rustler::nif]
+pub fn send_message(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    message: String,
+) -> Result<ResourceArc<NodeRef>, RustlerError> {
+    println!("Message: {:?}", message);
+
+    let resource_arc = node_ref.0.clone();
+
+    let endpoint = {
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.endpoint.clone()
+    };
+
+    let gossip = {
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.gossip.clone()
+    };
+
+    let sender = {
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.sender.clone()
+    };
+
+    let message = Message::AboutMe {
+        from: endpoint.node_id(),
+        name: String::from(message),
+    };
+
+    RUNTIME
+        .block_on(sender.broadcast(message.to_vec().into()))
+        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip broadcast error: {}", e))))?;
+
+    Ok(node_ref)
+}
+
+#[rustler::nif]
+pub fn connect_node(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    ticket: String,
+) -> Result<(), RustlerError> {
+    let resource_arc = node_ref.0.clone();
+
+    let Ticket { topic, nodes } = Ticket::from_str(&ticket.to_string())
+        .map_err(|e| RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e))))?;
+
+    println!("connect_node: {:?} {:?}", topic, nodes);
+
+    let endpoint_conn = {
+        let endpoint_conn = resource_arc.lock().unwrap();
+        endpoint_conn.endpoint.clone()
+    };
+
+    let gossip = {
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.gossip.clone()
+    };
+
+    let builder = Endpoint::builder();
+
+    let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
+    if nodes.is_empty() {
+        println!("> waiting for nodes to join us...");
+    } else {
+        println!("> trying to connect to {} nodes...", nodes.len());
+        // add the peer addrs from the ticket to our endpoint's addressbook so that they can be dialed
+        for node in nodes.into_iter() {
+            endpoint_conn.add_node_addr(node).map_err(|e| {
+                RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e)))
+            })?;
+        }
+    };
+
+    let topic = RUNTIME
+        .block_on(async {
+            timeout(
+                Duration::from_secs(5),
+                gossip.subscribe_and_join(
+                    TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string())),
+                    node_ids,
+                ),
+            )
+            .await
+        })
+        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip timeout: {:?}", e))))? // Convert timeout error
+        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip subscribe error: {:?}", e))))?; // Convert subscribe error
 
     let (sender, mut receiver) = topic.split();
 
     let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<Event>(100);
     let mpsc_event_receiver = Arc::new(RwLock::new(mpsc_event_receiver));
     let mpsc_event_receiver_clone = mpsc_event_receiver.clone();
-
-    // Broadcast a messsage to the topic.
-    // Since no one else is apart of this topic,
-    // this message is currently going out to no one.
 
     RUNTIME.spawn(async move {
         tracing::info!("🎧 Listening for gossip events...");
@@ -283,161 +384,6 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
             tracing::error!("Error processing events: {:?}", e);
         }
     });
-
-    // RUNTIME.spawn(subscribe_loop(receiver));
-
-    // RUNTIME
-    //     .block_on(sender.broadcast("sup".into()))
-    //     .map_err(|e| RustlerError::Term(Box::new(format!("Gossip broadcast error: {}", e))))?;
-
-    // // let receiver_arc = Arc::new(RwLock::new(receiver));
-
-    // let message = Message::AboutMe {
-    //     from: endpoint.node_id(),
-    //     name: String::from("alice"),
-    // };
-
-    // RUNTIME
-    //     .block_on(sender.broadcast(message.to_vec().into()))
-    //     .map_err(|e| RustlerError::Term(Box::new(format!("Gossip broadcast error: {}", e))))?;
-
-    // Open a connection to the accepting node
-    // let conn = RUNTIME
-    //     .block_on(endpoint_clone.connect(node_addr, ALPN))
-    //     .map_err(|e| RustlerError::Term(Box::new(format!("Conn error: {}", e))))?;
-
-    // // let conn = endpoint.connect(addr, ALPN).await?;
-
-    // // Open a bidirectional QUIC stream
-    // let (mut send, mut recv) = RUNTIME
-    //     .block_on(conn.open_bi())
-    //     .map_err(|e| RustlerError::Term(Box::new(format!("Conn open error: {}", e))))?;
-
-    let state = NodeState::new(pid, endpoint_clone, router_clone, gossip, sender);
-    let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
-
-    Ok(resource)
-}
-
-#[rustler::nif]
-pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String, RustlerError> {
-    println!("Create ticket");
-
-    let resource_arc = node_ref.0.clone();
-
-    let endpoint = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.endpoint.clone()
-    };
-
-    let topic = TopicId::from_bytes(string_to_32_byte_array(&*TOPIC_NAME.to_string()));
-
-    let node_addr = RUNTIME
-        .block_on(endpoint.node_addr())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
-
-    let ticket = {
-        // Get our address information, includes our
-        // `NodeId`, our `RelayUrl`, and any direct
-        // addresses.
-        let me = node_addr;
-        let nodes = vec![me];
-        Ticket { topic, nodes }
-    };
-
-    Ok(ticket.to_string())
-}
-
-#[rustler::nif]
-pub fn send_message(
-    env: Env,
-    node_ref: ResourceArc<NodeRef>,
-    message: String,
-) -> Result<ResourceArc<NodeRef>, RustlerError> {
-    println!("Message: {:?}", message);
-
-    let resource_arc = node_ref.0.clone();
-
-    let endpoint = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.endpoint.clone()
-    };
-
-    let sender = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.sender.clone()
-    };
-
-    let message = Message::AboutMe {
-        from: endpoint.node_id(),
-        name: String::from(message),
-    };
-
-    RUNTIME
-        .block_on(sender.broadcast(message.to_vec().into()))
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip broadcast error: {}", e))))?;
-
-    Ok(node_ref)
-}
-
-#[rustler::nif]
-pub fn connect_node(
-    env: Env,
-    node_ref: ResourceArc<NodeRef>,
-    ticket: String,
-) -> Result<(), RustlerError> {
-    let resource_arc = node_ref.0.clone();
-
-    let Ticket { topic, nodes } = Ticket::from_str(&ticket.to_string())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e))))?;
-
-    println!("connect_node: {:?} {:?}", topic, nodes);
-
-    let endpoint_conn = {
-        let endpoint_conn = resource_arc.lock().unwrap();
-        endpoint_conn.endpoint.clone()
-    };
-
-    let endpoint_sender = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.sender.clone()
-    };
-
-    let gossip = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.gossip.clone()
-    };
-
-    let builder = Endpoint::builder();
-
-    let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
-    if nodes.is_empty() {
-        println!("> waiting for nodes to join us...");
-    } else {
-        println!("> trying to connect to {} nodes...", nodes.len());
-        // add the peer addrs from the ticket to our endpoint's addressbook so that they can be dialed
-        for node in nodes.into_iter() {
-            endpoint_conn.add_node_addr(node).map_err(|e| {
-                RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e)))
-            })?;
-        }
-    };
-
-    RUNTIME.spawn(async move {
-        gossip.subscribe_and_join(topic, node_ids).await;
-        println!("Connected!");
-    });
-
-    // let topic = RUNTIME
-    //     .block_on(async { gossip.subscribe_and_join(topic, node_ids).await })
-    //     // .block_on(async { gossip.subscribe(topic, node_ids) })
-    //     .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
-
-    // println!("Connected!");
-
-    // // let topic = gossip.subscribe(id, node_ids).map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
-
-    // let (sender, receiver) = topic.split();
 
     Ok(())
 }
