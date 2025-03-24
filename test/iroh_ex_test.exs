@@ -17,7 +17,7 @@ defmodule IrohExTest do
 
     Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
-    nodes = create_nodes_parallel(50)
+    nodes = create_nodes_parallel(200)
 
     IO.inspect(nodes, label: "Node list")
 
@@ -36,18 +36,18 @@ defmodule IrohExTest do
 
     Process.sleep(1000)
 
-    Enum.each(1..10000, fn x ->
+    Enum.each(1..50_000, fn x ->
       node = Enum.random(nodes)
 
       IO.inspect(node, label: "Send msg Node ref")
 
-      node
-      |> Native.send_message("Elixir: Message #{inspect(x)}")
+      # node
+      # |> Native.send_message("Elixir: Message #{inspect(x)}")
 
-      # Task.async(fn ->
-      #   Process.sleep(:rand.uniform(1000))
-      #   Native.send_message(node, "Elixir: Message #{inspect(x)}")
-      # end)
+      Task.async(fn ->
+        Process.sleep(:rand.uniform(100))
+        Native.send_message(node, "Elixir: Message #{inspect(x)}")
+      end)
     end)
 
     Process.sleep(2000)
@@ -58,7 +58,7 @@ defmodule IrohExTest do
   def create_nodes_parallel(count) when is_integer(count) and count > 0 do
     1..count
     # Launch tasks in parallel
-    |> Enum.map(fn _ -> Task.async(fn -> Native.create_node(self()) end) end)
+    |> Enum.map(fn _ -> Task.async(fn -> Native.create_node_async(self()) end) end)
     # Await results
     |> Enum.map(&Task.await/1)
     |> Enum.reduce([], fn node_ref, acc ->

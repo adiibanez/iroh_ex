@@ -13,6 +13,9 @@ defmodule IrohEx.Native do
   @spec create_node(pid()) :: {:ok, reference()} | {:error, term()}
   def create_node(_pid), do: error()
 
+  @spec create_node_async(pid()) :: {:ok, reference()} | {:error, term()}
+  def create_node_async(_pid), do: error()
+
   @spec gen_node_addr(reference()) :: {:ok, binary()} | {:error, term()}
   def gen_node_addr(_node), do: error()
 

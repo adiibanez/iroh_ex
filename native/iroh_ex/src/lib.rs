@@ -151,6 +151,64 @@ pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
     Ok(secret_key.to_string())
 }
 
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn create_node_async(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
+    // Block inside DirtyCpu to safely wait for the async task
+    tokio::task::block_in_place(|| {
+        RUNTIME.block_on(async { create_node_async_internal(pid).await })
+    })
+}
+
+// The actual async function that creates a node
+async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
+    let endpoint = Endpoint::builder()
+        .discovery_local_network()
+        .bind()
+        .await
+        .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
+
+    println!("Endpoint node id: {:?}", endpoint.node_id());
+
+    let endpoint_clone = endpoint.clone();
+    let mut builder = iroh::protocol::Router::builder(endpoint.clone());
+
+    let gossip = Gossip::builder()
+        .spawn(endpoint.clone())
+        .await
+        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip protocol error: {}", e))))?;
+
+    builder = builder.accept(GossipALPN, gossip.clone());
+    builder = builder.accept(ALPN, Echo);
+
+    let router = builder
+        .spawn()
+        .await
+        .map_err(|e| RustlerError::Term(Box::new(format!("Router error: {}", e))))?;
+
+    let router_clone = router.clone();
+
+    let node_addr = router
+        .endpoint()
+        .node_addr()
+        .await
+        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
+
+    let topic = gossip
+        .subscribe(
+            TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string())),
+            vec![],
+        )
+        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+
+    let (sender, _receiver) = topic.split();
+
+    let state = NodeState::new(pid, endpoint_clone, router_clone, gossip, sender);
+    let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
+
+    Ok(resource)
+}
+
 #[rustler::nif]
 pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let endpoint = RUNTIME
