@@ -14,7 +14,7 @@ defmodule IrohExTest do
 
     IO.inspect(ticket, label: "Node1 ticket")
 
-    count = 2
+    count = 20
 
     Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
@@ -32,11 +32,11 @@ defmodule IrohExTest do
 
     Process.sleep(2000)
 
-    Enum.each(1..2, fn x ->
+    Enum.each(1..20, fn x ->
       node = Enum.random(nodes)
 
       node
-      |> Native.send_message("Message #{inspect(x)}")
+      |> Native.send_message("Elixir: Message #{inspect(x)}")
     end)
 
     Process.sleep(5000)

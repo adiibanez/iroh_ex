@@ -255,7 +255,7 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 
     let node_addr = RUNTIME
         .block_on(endpoint.node_addr())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip broadcast error: {}", e))))?;
+        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
 
     let ticket = {
         // Get our address information, includes our
@@ -311,6 +311,8 @@ pub fn connect_node(
 
     let Ticket { topic, nodes } = Ticket::from_str(&ticket.to_string())
         .map_err(|e| RustlerError::Term(Box::new(format!("Ticket parsing error: {}", e))))?;
+
+    println!("connect_node: {:?} {:?}", topic, nodes);
 
     let endpoint_conn = {
         let endpoint_conn = resource_arc.lock().unwrap();
