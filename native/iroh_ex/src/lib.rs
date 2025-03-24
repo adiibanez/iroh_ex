@@ -153,7 +153,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
         .block_on(
             Endpoint::builder()
                 .discovery_local_network()
-                .discovery_n0()
+                // .discovery_n0()
                 .bind(),
         )
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -276,7 +276,7 @@ pub fn connect_node(
     env: Env,
     node_ref: ResourceArc<NodeRef>,
     ticket: String,
-) -> Result<(), RustlerError> {
+) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let resource_arc = node_ref.0.clone();
 
     let Ticket { topic, nodes } = Ticket::from_str(&ticket.to_string())
@@ -313,10 +313,7 @@ pub fn connect_node(
         .block_on(async {
             timeout(
                 Duration::from_secs(5),
-                gossip.subscribe_and_join(
-                    TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string())),
-                    node_ids,
-                ),
+                gossip.subscribe_and_join(topic, node_ids),
             )
             .await
         })
@@ -385,7 +382,7 @@ pub fn connect_node(
         }
     });
 
-    Ok(())
+    Ok(node_ref)
 }
 
 // The protocol definition:
