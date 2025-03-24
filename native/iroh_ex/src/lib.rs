@@ -231,24 +231,25 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     RUNTIME.spawn(async move {
         tracing::info!("🎧 Listening for gossip events...");
 
-        while let Some(event_result) = receiver.next().await {
-            match event_result {
-                Ok(event) => {
+        loop {
+            match receiver.next().await {
+                Some(Ok(event)) => {
                     tracing::debug!("🔔 Gossip Event: {:?}", event);
-
                     if let Err(e) = mpsc_event_sender.send(event).await {
-                        tracing::debug!("⚠️ Failed to forward event: {:?}", e);
-                        break;
+                        tracing::warn!("⚠️ Failed to forward event: {:?}", e);
                     }
                 }
-                Err(e) => {
-                    tracing::error!("❌ Failed to receive event: {:?}", e);
-                    break; // Exit loop on error
+                Some(Err(e)) => {
+                    tracing::error!("❌ Error receiving gossip event: {:?}", e);
+                    tracing::info!("🔄 Restarting event handler in 2s...");
+                    sleep(Duration::from_secs(2)).await; // Delay before retrying
+                }
+                None => {
+                    tracing::warn!("⚠️ Gossip event stream ended. Reconnecting...");
+                    sleep(Duration::from_secs(2)).await; // Delay before retrying
                 }
             }
         }
-
-        tracing::debug!("📴 Gossip event handler closed");
     });
 
     RUNTIME.spawn(async move {
@@ -542,7 +543,7 @@ impl FromStr for Ticket {
 
 fn on_load(env: Env, _info: Term) -> bool {
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::new("iroh=debug,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
+        .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=debug")) // Enable DEBUG for `iroh_ex`
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
