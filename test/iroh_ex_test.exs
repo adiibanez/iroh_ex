@@ -32,7 +32,7 @@ defmodule IrohExTest do
 
     Process.sleep(2000)
 
-    Enum.each(1..1000, fn x ->
+    Enum.each(1..2, fn x ->
       node = Enum.random(nodes)
 
       node

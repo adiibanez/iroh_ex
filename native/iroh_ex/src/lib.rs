@@ -342,134 +342,21 @@ pub fn connect_node(
         }
     };
 
-    let topic = RUNTIME
-        .block_on(async { gossip.subscribe_and_join(topic, node_ids).await })
-        // .block_on(async { gossip.subscribe(topic, node_ids) })
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
-
-    println!("Connected!");
-
-    // let topic = gossip.subscribe(id, node_ids).map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
-
-    let (sender, receiver) = topic.split();
-
-    Ok(())
-}
-
-//#[rustler::nif]
-pub fn connect_node_(
-    env: Env,
-    node_ref: ResourceArc<NodeRef>,
-    ticket: String,
-) -> Result<(), RustlerError> {
-    let resource_arc = node_ref.0.clone();
-
-    let endpoint_conn = {
-        let endpoint_conn = resource_arc.lock().unwrap();
-        endpoint_conn.endpoint.clone()
-    };
-
-    let endpoint_sender = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.sender.clone()
-    };
-
-    let builder = Endpoint::builder();
-
-    // .alpns(GossipALPN)
-
-    let endpoint = RUNTIME
-        .block_on(builder.discovery_n0().bind())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
-
-    println!("Connect Endpoint node id: {:?}", endpoint.node_id());
-
-    let endpoint_clone = endpoint.clone();
-
-    let node_addr = RUNTIME
-        .block_on(endpoint_conn.node_addr())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
-
-    let node_addr_clone = node_addr.clone();
-
-    // Open a connection to the accepting node
-    let conn = RUNTIME
-        .block_on(endpoint_clone.connect(node_addr, ALPN))
-        .map_err(|e| RustlerError::Term(Box::new(format!("Conn error: {}", e))))?;
-
-    // let conn = endpoint.connect(addr, ALPN).await?;
-
-    // Open a bidirectional QUIC stream
-    let (mut send, mut recv) = RUNTIME
-        .block_on(conn.open_bi())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Conn open error: {}", e))))?;
-
-    println!("Connected to {:?}", node_addr_clone);
-
-    let gossip = RUNTIME
-        .block_on(Gossip::builder().spawn(endpoint.clone()))
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip protocol error: {}", e))))?;
-
-    let node_ids = vec![];
-
-    let topic = RUNTIME
-        .block_on(async {
-            gossip.subscribe(
-                TopicId::from_bytes(string_to_32_byte_array("test")),
-                node_ids,
-            )
-        })
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
-
-    // let topic = gossip.subscribe(id, node_ids).map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
-
-    let (gossip_sender, _gossip_receiver) = topic.split();
-
-    // Broadcast a messsage to the topic.
-    // Since no one else is apart of this topic,
-    // this message is currently going out to no one.
-
-    RUNTIME
-        .block_on(gossip_sender.broadcast("sup".into()))
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip broadcast error: {}", e))))?;
-
-    let message = Message::AboutMe {
-        from: endpoint.node_id(),
-        name: String::from("alice"),
-    };
-
-    RUNTIME
-        .block_on(gossip_sender.broadcast(message.to_vec().into()))
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip broadcast error: {}", e))))?;
-
     RUNTIME.spawn(async move {
-        send.write_all(b"Hello, world!").await;
-        // Signal the end of transfer.
-        send.finish();
-        // Receive the echo
-
-        let response_bytes = recv.read_to_end(1000).await.expect("Error response_bytes");
-
-        // Convert bytes to a String (handling UTF-8 errors)
-        let response =
-            String::from_utf8(response_bytes).map_err(|e| anyhow::anyhow!("Invalid UTF-8: {}", e));
-
-        // Print the response
-        println!("RESPONSE: {:?}", response);
-
-        // let response = recv.read_to_end(1000).await;
-
-        // println!("RESPONSE: {:?}", response);
-
-        loop {
-            sleep(Duration::from_secs(5)).await;
-        }
-        // assert_eq!(&response, b"Hello, world!");
+        gossip.subscribe_and_join(topic, node_ids).await;
+        println!("Connected!");
     });
 
-    // let state = NodeState::new(pid, endpoint_clone, router_clone);
+    // let topic = RUNTIME
+    //     .block_on(async { gossip.subscribe_and_join(topic, node_ids).await })
+    //     // .block_on(async { gossip.subscribe(topic, node_ids) })
+    //     .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
 
-    // let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
+    // println!("Connected!");
+
+    // // let topic = gossip.subscribe(id, node_ids).map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+
+    // let (sender, receiver) = topic.split();
 
     Ok(())
 }
