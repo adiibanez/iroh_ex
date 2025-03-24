@@ -1,0 +1,27 @@
+Running ExUnit with seed: 434297, max_cases: 20
+
+..[2m2025-03-24T02:30:28.480872Z[0m [34mDEBUG[0m [2miroh_ex[0m[2m:[0m Debug message from main!
+Initializing Rust Iroh NIF module ...
+Rust NIF Iroh module loaded successfully.
+Endpoint node id: PublicKey(e6666fcd90ae20ff32f80345a4fbf62338d61d978ee7dc873016893def3a6abe)
+[2m2025-03-24T02:30:28.531723Z[0m [33m WARN[0m [1mtry_send[0m[2m:[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:4ff:2f0:38e9::1]:7842, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2025-03-24T02:30:28.817738Z[0m [32m INFO[0m [1mep[0m[1m{[0m[3mme[0m[2m=[0me6666fcd90[1m}[0m[2m:[0m[1mmagicsock[0m[2m:[0m[1mactor[0m[2m:[0m [2miroh::magicsock[0m[2m:[0m home is now relay https://euw1-1.relay.iroh.network./, was None
+Initialize subscribe loop
+Create ticket
+Node1 ticket: "pmrhi33qnfrseos3geytmlbrgaysymjrguwdcmjwfqycymbmgawdalbqfqycymbmgawdalbqfqycymbmgawdalbqfqycymbmgawdalbqfqycymbmgawdalbqfqycymbmgbosyiton5sgk4zchjnxwiton5sgkx3jmqrduitfgy3dmntgmnsdsmdbmuzdaztggmzgmobqgm2dkyjumzrgmnrsgmztqzbwgfsdsnzymvstozddha3tgmbrgy4dsm3emvtdgyjwmfrgkirmejzgk3dbpfpxk4tmei5ce2duoryhgorpf5sxk5zrfuys44tfnrqxsltjojxwqltomv2ho33snmxc6irmejsgs4tfmn2f6ylemrzgk43tmvzseos3ei2dmlrsgixdenbogezdmorvgeydqmjcfqrdcojsfyytmobogexdmnb2guytaobreiwcemjzgixdcnryfy3dilrrhi2tcmbygerf27k5pu"
+connect_node: TopicId(7465737400000000000000000000000000000000000000000000000000000000) [NodeAddr { node_id: PublicKey(e6666fcd90ae20ff32f80345a4fbf62338d61d978ee7dc873016893def3a6abe), relay_url: Some(RelayUrl("https://euw1-1.relay.iroh.network./")), direct_addresses: {46.22.24.126:51081, 192.168.1.64:51081, 192.168.64.1:51081} }]
+> trying to connect to 1 nodes...
+Endpoint node id: PublicKey(b183aa35e6e72ead12f0ca564edc8109caf83beadda55c97dbab9ced9d539b93)
+Endpoint node id: PublicKey(2ae7820bccb09a01b913b6e5170ff631b2988e6738b26d99ff098490f4e5a222)
+[2m2025-03-24T02:30:28.931145Z[0m [33m WARN[0m [1mtry_send[0m[2m:[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:4ff:f0:81d7::1]:7842, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2025-03-24T02:30:28.931237Z[0m [33m WARN[0m [1mtry_send[0m[2m:[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:4f8:1c1b:58b6::1]:7842, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2025-03-24T02:30:29.244201Z[0m [32m INFO[0m [1mep[0m[1m{[0m[3mme[0m[2m=[0m2ae7820bcc[1m}[0m[2m:[0m[1mmagicsock[0m[2m:[0m[1mactor[0m[2m:[0m[1madd_node_addr[0m[1m{[0m[3mme[0m[2m=[0m2ae7820bcc[1m}[0m[2m:[0m[1madd_node_addr[0m[1m{[0m[3mnode[0m[2m=[0me6666fcd90[1m}[0m[2m:[0m [2miroh::magicsock::node_map[0m[2m:[0m inserting new node in NodeMap [3mnode[0m[2m=[0me6666fcd90 [3mrelay_url[0m[2m=[0mNone [3msource[0m[2m=[0mlocal.swarm.discovery
+[2m2025-03-24T02:30:29.244201Z[0m [32m INFO[0m [1mep[0m[1m{[0m[3mme[0m[2m=[0mb183aa35e6[1m}[0m[2m:[0m[1mmagicsock[0m[2m:[0m[1mactor[0m[2m:[0m[1madd_node_addr[0m[1m{[0m[3mme[0m[2m=[0mb183aa35e6[1m}[0m[2m:[0m[1madd_node_addr[0m[1m{[0m[3mnode[0m[2m=[0me6666fcd90[1m}[0m[2m:[0m [2miroh::magicsock::node_map[0m[2m:[0m inserting new node in NodeMap [3mnode[0m[2m=[0me6666fcd90 [3mrelay_url[0m[2m=[0mNone [3msource[0m[2m=[0mlocal.swarm.discovery
+[2m2025-03-24T02:30:29.402460Z[0m [32m INFO[0m [1mep[0m[1m{[0m[3mme[0m[2m=[0mb183aa35e6[1m}[0m[2m:[0m[1mmagicsock[0m[2m:[0m[1mactor[0m[2m:[0m [2miroh::magicsock[0m[2m:[0m home is now relay https://euw1-1.relay.iroh.network./, was None
+[2m2025-03-24T02:30:29.402612Z[0m [32m INFO[0m [1mep[0m[1m{[0m[3mme[0m[2m=[0m2ae7820bcc[1m}[0m[2m:[0m[1mmagicsock[0m[2m:[0m[1mactor[0m[2m:[0m [2miroh::magicsock[0m[2m:[0m home is now relay https://euw1-1.relay.iroh.network./, was None
+Initialize subscribe loop
+
+Initialize subscribe loop
+BREAK: (a)bort (A)bort with dump (c)ontinue (p)roc info (i)nfo
+       (l)oaded (v)ersion (k)ill (D)b-tables (d)istribution
+[2m2025-03-24T02:30:29.986785Z[0m [32m INFO[0m [1mep[0m[1m{[0m[3mme[0m[2m=[0m2ae7820bcc[1m}[0m[2m:[0m[1mmagicsock[0m[2m:[0m[1mactor[0m[2m:[0m[1madd_node_addr[0m[1m{[0m[3mme[0m[2m=[0m2ae7820bcc[1m}[0m[2m:[0m[1madd_node_addr[0m[1m{[0m[3mnode[0m[2m=[0mb183aa35e6[1m}[0m[2m:[0m [2miroh::magicsock::node_map[0m[2m:[0m inserting new node in NodeMap [3mnode[0m[2m=[0mb183aa35e6 [3mrelay_url[0m[2m=[0mNone [3msource[0m[2m=[0mlocal.swarm.discovery

@@ -151,7 +151,12 @@ pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
 #[rustler::nif]
 pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let endpoint = RUNTIME
-        .block_on(Endpoint::builder().discovery_n0().bind())
+        .block_on(
+            Endpoint::builder()
+                .discovery_local_network()
+                // .discovery_n0()
+                .bind(),
+        )
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
 
     println!("Endpoint node id: {:?}", endpoint.node_id());
@@ -199,13 +204,44 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
 
     // let topic = gossip.subscribe(id, node_ids).map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
 
-    let (sender, receiver) = topic.split();
+    let (sender, mut receiver) = topic.split();
 
     // Broadcast a messsage to the topic.
     // Since no one else is apart of this topic,
     // this message is currently going out to no one.
 
-    RUNTIME.spawn(subscribe_loop(receiver));
+    RUNTIME.spawn(async move {
+        let mut names = HashMap::new();
+        // iterate over all events
+        let result: Result<(), anyhow::Error> = async {
+            while let Some(event) = receiver.try_next().await? {
+                tracing::info!("Received event {:?}", event);
+
+                if let Event::Gossip(GossipEvent::Received(msg)) = event {
+                    match Message::from_bytes(&msg.content)? {
+                        Message::AboutMe { from, name } => {
+                            names.insert(from, name.clone());
+                            tracing::info!("> {} MSG {}", from.fmt_short(), name);
+                        }
+                        Message::Message { from, text } => {
+                            let name = names
+                                .get(&from)
+                                .map_or_else(|| from.fmt_short(), String::to_string);
+                            tracing::info!("{}: {}", name, text);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+        .await;
+
+        if let Err(e) = result {
+            tracing::error!("Error processing events: {:?}", e);
+        }
+    });
+
+    // RUNTIME.spawn(subscribe_loop(receiver));
 
     // RUNTIME
     //     .block_on(sender.broadcast("sup".into()))
@@ -393,7 +429,8 @@ async fn subscribe_loop(mut receiver: GossipReceiver) -> Result<()> {
     let mut names = HashMap::new();
     // iterate over all events
     while let Some(event) = receiver.try_next().await? {
-        println!("Received event {:?}", event);
+        // println!("Received event {:?}", event);
+        tracing::info!("Received event {:?}", event);
         // if the Event is a `GossipEvent::Received`, let's deserialize the message:
         if let Event::Gossip(GossipEvent::Received(msg)) = event {
             // deserialize the message and match on the
@@ -404,7 +441,7 @@ async fn subscribe_loop(mut receiver: GossipReceiver) -> Result<()> {
                     // add and entry into the map
                     // and print the name
                     names.insert(from, name.clone());
-                    println!("> {} is now known as {}", from.fmt_short(), name);
+                    tracing::info!("> {} is now known as {}", from.fmt_short(), name);
                 }
                 Message::Message { from, text } => {
                     // if it's a `Message` message,
@@ -413,7 +450,7 @@ async fn subscribe_loop(mut receiver: GossipReceiver) -> Result<()> {
                     let name = names
                         .get(&from)
                         .map_or_else(|| from.fmt_short(), String::to_string);
-                    println!("{}: {}", name, text);
+                    tracing::info!("{}: {}", name, text);
                 }
             }
         }
