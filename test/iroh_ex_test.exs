@@ -3,20 +3,33 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  test "greets the world" do
-    assert IrohEx.hello() == :world
+  @node_cnt 10
+  @msg_cnt 100_000
+  @rand_msg_delay 100
+
+  test "test iroh node" do
+    node_ref = Native.create_node(self())
+    ticket = Native.create_ticket(node_ref)
+
+    node_id = Native.gen_node_addr(node_ref)
+
+    _node_ref_connected = Native.connect_node(node_ref, ticket)
+
+    IO.inspect(node_id, label: "Node id")
+    assert is_binary(node_id)
   end
 
-  test "create iroh endpoint" do
-    mother_node_ref = Native.create_node(self())
+  test "test many iroh nodes" do
+    mothership_node_ref = Native.create_node(self())
 
-    ticket = Native.create_ticket(mother_node_ref)
+    ticket = Native.create_ticket(mothership_node_ref)
 
     IO.inspect(ticket, label: "Node1 ticket")
 
-    Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
+    # connect main node
+    Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
 
-    nodes = create_nodes_parallel(10)
+    nodes = create_nodes(@node_cnt)
 
     IO.inspect(nodes, label: "Node list")
 
@@ -33,19 +46,20 @@ defmodule IrohExTest do
 
     Enum.each(tasks, &Task.await/1)
 
-    Process.sleep(1000)
+    # Process.sleep(10000)
+    IO.puts("starting msg loop")
 
     tasks =
-      Enum.map(1..25_000, fn x ->
-        node = Enum.random(nodes)
-
-        IO.inspect(node, label: "Send msg Node ref")
-
-        # node
-        # |> Native.send_message("Elixir: Message #{inspect(x)}")
-
+      Enum.map(1..@msg_cnt, fn x ->
         Task.async(fn ->
-          Native.send_message(node, "Elixir: Message #{inspect(x)}")
+          # IO.puts("Nodes: #{Enum.count(nodes)}")
+          # node = Enum.at(nodes, :rand.uniform(Enum.count(nodes) - 1))
+          node = Enum.random(nodes)
+          _node_id = Native.gen_node_addr(node)
+          # IO.inspect(node, label: "Send msg Node ref")
+          Process.sleep(:rand.uniform(@rand_msg_delay))
+          # from #{node_id}
+          Native.send_message(node, "#{x}")
         end)
       end)
 
@@ -54,10 +68,11 @@ defmodule IrohExTest do
     Enum.each(tasks, &Task.await/1)
   end
 
-  def create_nodes_parallel(count) when is_integer(count) and count > 0 do
-    1..count
-    # Launch tasks in parallel
-    |> Enum.map(fn _ -> Task.async(fn -> Native.create_node_async(self()) end) end)
+  def create_nodes(node_count) when is_integer(node_count) and node_count > 0 do
+    1..node_count
+    |> Enum.map(fn _ ->
+      Task.async(fn -> Native.create_node_async(self()) end)
+    end)
     # Await results
     |> Enum.map(&Task.await/1)
     |> Enum.reduce([], fn node_ref, acc ->
@@ -72,7 +87,7 @@ defmodule IrohExTest do
           acc
       end
     end)
-    |> dbg()
+    # |> dbg()
     # Maintain original order
     |> Enum.reverse()
   end

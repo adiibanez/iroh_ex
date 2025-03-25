@@ -162,8 +162,8 @@ pub fn create_node_async(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>
 
 async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let endpoint = Endpoint::builder()
-        .discovery_local_network()
-        // .discovery_n0()
+        // .discovery_local_network()
+        .discovery_n0()
         .bind()
         .await
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -214,8 +214,8 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     let endpoint = RUNTIME
         .block_on(
             Endpoint::builder()
-                .discovery_local_network()
-                // .discovery_n0()
+                // .discovery_local_network()
+                .discovery_n0()
                 .bind(),
         )
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -272,11 +272,9 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
     println!("Create ticket");
 
     let resource_arc = node_ref.0.clone();
+    let state = resource_arc.lock().unwrap();
 
-    let endpoint = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.endpoint.clone()
-    };
+    let endpoint = { state.endpoint.clone() };
 
     let topic = TopicId::from_bytes(string_to_32_byte_array(&*TOPIC_NAME.to_string()));
 
@@ -299,11 +297,9 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 #[rustler::nif(schedule = "DirtyIo")]
 fn gen_node_addr(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
     let resource_arc = node_ref.0.clone();
+    let state = resource_arc.lock().unwrap();
 
-    let endpoint = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.endpoint.clone()
-    };
+    let endpoint = { state.endpoint.clone() };
 
     let node_id = endpoint.node_id();
 
@@ -367,11 +363,9 @@ fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
 #[rustler::nif(schedule = "DirtyIo")]
 fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     let node = node_ref.0.clone();
+    let state = node.lock().unwrap();
 
-    let endpoint = {
-        let endpoint = node.lock().unwrap();
-        endpoint.endpoint.clone()
-    };
+    let endpoint = { state.endpoint.clone() };
 
     //endpoint.discovery_stream();
 
@@ -589,7 +583,7 @@ fn on_load(env: Env, _info: Term) -> bool {
     let is_tty = atty::is(Stream::Stdout);
 
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::new("iroh=error,iroh_ex=info")) // Enable DEBUG for `iroh_ex`
+        .with_env_filter(EnvFilter::new("iroh=debug,iroh_ex=info")) // Enable DEBUG for `iroh_ex`
         .with_ansi(is_tty)
         .finish();
 
