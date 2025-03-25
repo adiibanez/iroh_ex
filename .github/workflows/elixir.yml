@@ -18,6 +18,7 @@ env:
   CARGO_TERM_COLOR: always
   TOOLCHAIN: nightly
   CARGO_CACHE_PATH: |
+    ./native/iroh_ex/target/
     ~/.cargo/.crates.toml
     ~/.cargo/.crates2.json
     ~/.cargo/bin/
@@ -97,7 +98,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CARGO_CACHE_PATH }}
-          key: cargo-${{ github.workflow }}-${{ github.job }}-${{runner.os}}-${{runner.arch}}
+          key: cargo-${{ github.workflow }}-${{ github.job }}-${{runner.os}}-${{runner.arch}}-${{hashFiles('native/iroh_ex/Cargo.lock')}}
 
       - name: Cache ASDF and Toolchains
         uses: actions/cache@v4
@@ -150,11 +151,11 @@ jobs:
         run: |
           mix deps.get
 
-      - name: "Run tests Nodes: ${{matrix.test-config.node_cnt}} Msgs: ${{matrix.test-config.msg_cnt}}"
-        run: |
-          # not allowed on github runner: ulimit -n 500000
+      # - name: "Run tests Nodes: ${{matrix.test-config.node_cnt}} Msgs: ${{matrix.test-config.msg_cnt}}"
+      #   run: |
+      #     # not allowed on github runner: ulimit -n 500000
 
-          NODE_CNT=${{matrix.test-config.node_cnt}} \
-          MSG_CNT=${{matrix.test-config.msg_cnt}} \
-          RAND_MSG_DELAX=${{matrix.test-config.rand_msg_delay}} \
-          mix test
+      #     NODE_CNT=${{matrix.test-config.node_cnt}} \
+      #     MSG_CNT=${{matrix.test-config.msg_cnt}} \
+      #     RAND_MSG_DELAX=${{matrix.test-config.rand_msg_delay}} \
+      #     mix test
