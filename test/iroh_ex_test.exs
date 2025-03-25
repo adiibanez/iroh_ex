@@ -29,7 +29,9 @@ defmodule IrohExTest do
     # connect main node
     Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
 
-    nodes = create_nodes(System.get_env("NODES_CNT", @node_cnt))
+    nodes_cnt = System.get_env("NODES_CNT", @node_cnt)
+
+    nodes = create_nodes(nodes_cnt)
 
     IO.inspect(nodes, label: "Node list")
 
