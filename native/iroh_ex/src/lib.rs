@@ -455,7 +455,7 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
                 }
                 None => {
                     tracing::warn!("⚠️ Gossip event stream ended...");
-                    sleep(Duration::from_secs(2)).await;
+                    sleep(Duration::from_millis(100)).await;
                 }
             }
         }
@@ -583,7 +583,7 @@ fn on_load(env: Env, _info: Term) -> bool {
     let is_tty = atty::is(Stream::Stdout);
 
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::new("iroh=debug,iroh_ex=info")) // Enable DEBUG for `iroh_ex`
+        .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=info")) // Enable DEBUG for `iroh_ex`
         .with_ansi(is_tty)
         .finish();
 
