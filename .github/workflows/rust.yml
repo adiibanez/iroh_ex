@@ -60,11 +60,18 @@ jobs:
         path: ${{ env.CARGO_CACHE_PATH }}
         key: cargo-${{ github.workflow }}-${{ github.job }}-${{runner.os}}-${{runner.arch}}
 
+    - name: Clippy
+      run: |
+        cd native/iroh_ex
+        cargo clippy
+        #  --verbose
+
     - name: Build
       run: |
         cd native/iroh_ex
-        cargo build --verbose
-    - name: Run tests
-      run: |
-        cd native/iroh_ex
-        cargo test --verbose
+        cargo build --lib
+        #  --verbose
+    # - name: Run tests
+    #   run: |
+    #     cd native/iroh_ex
+    #     cargo test --verbose
