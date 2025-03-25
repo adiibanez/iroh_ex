@@ -34,40 +34,40 @@ jobs:
         platform: [ubuntu-latest, macos-latest]
         test-config: 
           - {
-            nodes_cnt: 5,
+            node_cnt: 5,
             msg_cnt: 1_000,
           }
           - {
-            nodes_cnt: 5,
+            node_cnt: 5,
             msg_cnt: 10_000,
           }
           - {
-            nodes_cnt: 5,
+            node_cnt: 5,
             msg_cnt: 20_000,
           }
           - {
-            nodes_cnt: 5,
+            node_cnt: 5,
             msg_cnt: 100_000,
           }
           - {
-            nodes_cnt: 10,
+            node_cnt: 10,
             msg_cnt: 100_000,
           }
           - {
-            nodes_cnt: 50,
+            node_cnt: 50,
             msg_cnt: 100_000,
           }
           - {
-            nodes_cnt: 100,
+            node_cnt: 100,
             msg_cnt: 100_000,
           }
           - {
-            nodes_cnt: 100,
+            node_cnt: 100,
             msg_cnt: 500_000,
             rand_msg_delay: 500
           }
           - {
-            nodes_cnt: 200,
+            node_cnt: 200,
             msg_cnt: 500_000,
             rand_msg_delay: 1000
           }
