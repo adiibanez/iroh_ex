@@ -71,13 +71,12 @@ const ALPN: &[u8] = b"iroh-example/echo/0";
 
 // const TOPIC_NAME: &str = "ehaaöskdjfasdjföasdjföa";
 
-static TOPIC_NAME: Lazy<String> = Lazy::new(|| generate_topic_name());
+static TOPIC_NAME: Lazy<String> = Lazy::new(generate_topic_name);
 
 fn generate_topic_name() -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(20)
-        .map(char::from)
         .collect()
 }
 
@@ -253,7 +252,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     let topic = RUNTIME
         .block_on(async {
             gossip.subscribe(
-                TopicId::from_bytes(string_to_32_byte_array(&*TOPIC_NAME.to_string())),
+                TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string())),
                 node_ids,
             )
         })
@@ -276,7 +275,7 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 
     let endpoint = { state.endpoint.clone() };
 
-    let topic = TopicId::from_bytes(string_to_32_byte_array(&*TOPIC_NAME.to_string()));
+    let topic = TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string()));
 
     let node_addr = RUNTIME
         .block_on(endpoint.node_addr())
@@ -326,7 +325,7 @@ pub fn send_message(
 
     let message = Message::AboutMe {
         from: endpoint.node_id(),
-        name: String::from(message),
+        name: message,
     };
 
     RUNTIME
