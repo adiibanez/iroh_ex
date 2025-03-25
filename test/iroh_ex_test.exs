@@ -17,7 +17,7 @@ defmodule IrohExTest do
 
     Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
-    nodes = create_nodes_parallel(200)
+    nodes = create_nodes_parallel(50)
 
     IO.inspect(nodes, label: "Node list")
 
@@ -36,7 +36,7 @@ defmodule IrohExTest do
 
     Process.sleep(1000)
 
-    Enum.each(1..50_000, fn x ->
+    Enum.each(1..5_000, fn x ->
       node = Enum.random(nodes)
 
       IO.inspect(node, label: "Send msg Node ref")

@@ -34,6 +34,10 @@ defmodule IrohEx.Native do
   @spec generate_secretkey() :: {:ok, binary()} | {:error, term()}
   def generate_secretkey(), do: error()
 
+  def list_peers(_node), do: error()
+
+  def disconnect_node(_node), do: error()
+
   ## Handle NIF errors when Rust module isn't loaded
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 end

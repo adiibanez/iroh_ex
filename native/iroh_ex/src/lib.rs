@@ -10,7 +10,7 @@
 // #[rustler::nif(schedule = "DirtyCpu")]
 
 use iroh::endpoint;
-use rustler::{Encoder, Env, Error as RustlerError, LocalPid, OwnedEnv, ResourceArc, Term};
+use rustler::{NifResult, Encoder, Env, Error as RustlerError, LocalPid, OwnedEnv, ResourceArc, Term};
 
 use atty::Stream;
 use tracing_subscriber::EnvFilter;
@@ -296,6 +296,14 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
     Ok(ticket.to_string())
 }
 
+
+#[rustler::nif(schedule = "DirtyIo")]
+fn gen_node_addr(node_ref: ResourceArc<NodeRef>,) -> NifResult<String> {
+    let resource_arc = node_ref.0.clone();
+    // let addr = node.local_peer_id().to_string();
+    Ok("dummy address".to_string())
+}
+
 #[rustler::nif]
 pub fn send_message(
     env: Env,
@@ -351,6 +359,24 @@ pub fn connect_node(
     Ok(node_ref)
 }
 
+#[rustler::nif(schedule = "DirtyIo")]
+fn disconnect_node(
+    node_ref: ResourceArc<NodeRef>,
+) -> NifResult<()> {
+    // let node = node_ref.lock().unwrap();
+    // node.disconnect_all();  // Assuming an API to disconnect all peers
+    Ok(())
+}
+
+
+#[rustler::nif(schedule = "DirtyIo")]
+fn list_peers(
+    node_ref: ResourceArc<NodeRef>,
+) -> NifResult<Vec<String>> {
+    let node = node_ref.0.clone();
+    let peers : Vec<_> = vec![]; //node.peers().iter().map(|p| p.to_string()).collect();
+    Ok(peers)
+}
 
 async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<(), RustlerError> {
     let resource_arc = node_ref.0.clone();
