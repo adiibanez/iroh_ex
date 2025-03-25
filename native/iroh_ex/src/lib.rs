@@ -36,14 +36,14 @@ use iroh::{
     Endpoint, NodeAddr, NodeId, SecretKey,
 };
 
-use quic_rpc::transport::flume::FlumeConnector;
+// use quic_rpc::transport::flume::FlumeConnector;
 
-pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
-    FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,
->;
-pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
-    FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,
->;
+// pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
+//     FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,
+// >;
+// pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
+//     FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,
+// >;
 
 // use iroh_gossip::{net::Gossip, ALPN as GossipALPN};
 // use iroh_gossip::proto::TopicId;

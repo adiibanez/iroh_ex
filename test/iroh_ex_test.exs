@@ -7,7 +7,6 @@ defmodule IrohExTest do
     assert IrohEx.hello() == :world
   end
 
-  @tag timeout: :infinity
   test "create iroh endpoint" do
     mother_node_ref = Native.create_node(self())
 
@@ -17,7 +16,7 @@ defmodule IrohExTest do
 
     Task.async(fn -> Native.connect_node(mother_node_ref, ticket) end)
 
-    nodes = create_nodes_parallel(50)
+    nodes = create_nodes_parallel(10)
 
     IO.inspect(nodes, label: "Node list")
 
@@ -36,23 +35,23 @@ defmodule IrohExTest do
 
     Process.sleep(1000)
 
-    Enum.each(1..5_000, fn x ->
-      node = Enum.random(nodes)
+    tasks =
+      Enum.map(1..25_000, fn x ->
+        node = Enum.random(nodes)
 
-      IO.inspect(node, label: "Send msg Node ref")
+        IO.inspect(node, label: "Send msg Node ref")
 
-      # node
-      # |> Native.send_message("Elixir: Message #{inspect(x)}")
+        # node
+        # |> Native.send_message("Elixir: Message #{inspect(x)}")
 
-      Task.async(fn ->
-        Process.sleep(:rand.uniform(100))
-        Native.send_message(node, "Elixir: Message #{inspect(x)}")
+        Task.async(fn ->
+          Native.send_message(node, "Elixir: Message #{inspect(x)}")
+        end)
       end)
-    end)
 
-    Process.sleep(2000)
+    IO.inspect(Enum.count(tasks), label: "Tasks")
 
-    assert IrohEx.hello() == :world
+    Enum.each(tasks, &Task.await/1)
   end
 
   def create_nodes_parallel(count) when is_integer(count) and count > 0 do
