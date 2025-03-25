@@ -29,7 +29,7 @@ defmodule IrohExTest do
     # connect main node
     Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
 
-    nodes = create_nodes(@node_cnt)
+    nodes = create_nodes(System.get_env("NODES_CNT", @node_cnt))
 
     IO.inspect(nodes, label: "Node list")
 
@@ -50,14 +50,14 @@ defmodule IrohExTest do
     IO.puts("starting msg loop")
 
     tasks =
-      Enum.map(1..@msg_cnt, fn x ->
+      Enum.map(1..System.get_env("MSG_CNT", @msg_cnt), fn x ->
         Task.async(fn ->
           # IO.puts("Nodes: #{Enum.count(nodes)}")
           # node = Enum.at(nodes, :rand.uniform(Enum.count(nodes) - 1))
           node = Enum.random(nodes)
           _node_id = Native.gen_node_addr(node)
           # IO.inspect(node, label: "Send msg Node ref")
-          Process.sleep(:rand.uniform(@rand_msg_delay))
+          Process.sleep(:rand.uniform(System.get_env("RAND_MSG_DELAX", @rand_msg_delay)))
           # from #{node_id}
           Native.send_message(node, "#{x}")
         end)

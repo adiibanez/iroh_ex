@@ -30,6 +30,45 @@ jobs:
     strategy:
       matrix:
         platform: [ubuntu-latest, macos-latest]
+        test-config: 
+          - {
+            nodes_cnt: 5,
+            msg_cnt: 1_000,
+          }
+          - {
+            nodes_cnt: 5,
+            msg_cnt: 10_000,
+          }
+          - {
+            nodes_cnt: 5,
+            msg_cnt: 20_000,
+          }
+          - {
+            nodes_cnt: 5,
+            msg_cnt: 100_000,
+          }
+          - {
+            nodes_cnt: 10,
+            msg_cnt: 100_000,
+          }
+          - {
+            nodes_cnt: 50,
+            msg_cnt: 100_000,
+          }
+          - {
+            nodes_cnt: 100,
+            msg_cnt: 100_000,
+          }
+          - {
+            nodes_cnt: 100,
+            msg_cnt: 500_000,
+            rand_msg_delay: 500
+          }
+          - {
+            nodes_cnt: 200,
+            msg_cnt: 500_000,
+            rand_msg_delay: 1000
+          }
     name: Build and test
     runs-on: ${{matrix.platform}}
 
@@ -108,9 +147,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          mix clean --all
           mix deps.get
 
-      - name: Run tests
+      - name: "Run tests Nodes: ${{matrix.test-config.node_cnt}} Msgs: ${{matrix.test-config.msg_cnt}}"
         run: |
+          ulimit -n 500000
+
+          NODE_CNT=${{matrix.test-config.node_cnt}} \
+          MSG_CNT=${{matrix.test-config.msg_cnt}} \
+          RAND_MSG_DELAX=${{matrix.test-config.rand_msg_delay}} \
           mix test
