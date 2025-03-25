@@ -4,7 +4,7 @@ defmodule IrohExTest do
   alias IrohEx.Native
 
   @node_cnt 100
-  @msg_cnt 100_000
+  @msg_cnt 200_000
   @rand_msg_delay 100
 
   test "test iroh node" do
@@ -29,7 +29,11 @@ defmodule IrohExTest do
     # connect main node
     Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
 
-    {nodes_cnt, _} = Integer.parse(System.get_env("NODES_CNT", "#{@node_cnt}"))
+    nodes_cnt =
+      case Integer.parse(System.get_env("NODES_CNT", "#{@node_cnt}")) do
+        {nodes_cnt, _} -> nodes_cnt
+        _ -> @node_cnt
+      end
 
     nodes = create_nodes(nodes_cnt)
 
@@ -51,7 +55,11 @@ defmodule IrohExTest do
     # Process.sleep(10000)
     IO.puts("starting msg loop")
 
-    {msg_cnt, _} = Integer.parse(System.get_env("MSG_CNT", "#{@msg_cnt}"))
+    msg_cnt =
+      case Integer.parse(System.get_env("MSG_CNT", "#{@msg_cnt}")) do
+        {msg_cnt, _} -> msg_cnt
+        _ -> @msg_cnt
+      end
 
     tasks =
       Enum.map(1..msg_cnt, fn x ->
@@ -61,8 +69,14 @@ defmodule IrohExTest do
           node = Enum.random(nodes)
           _node_id = Native.gen_node_addr(node)
           # IO.inspect(node, label: "Send msg Node ref")
-          {rand_msg_delay, _} =
-            Integer.parse(System.get_env("RAND_MSG_DELAX", "#{@rand_msg_delay}"))
+
+          rand_msg_delay =
+            case
+
+          Integer.parse System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}") do
+            {rand_msg_delay, _} -> rand_msg_delay
+            _ -> @rand_msg_delay
+          end
 
           Process.sleep(:rand.uniform(rand_msg_delay))
           # from #{node_id}

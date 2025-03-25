@@ -157,6 +157,6 @@ jobs:
 
           NODE_CNT=${{matrix.test-config.node_cnt}} \
           MSG_CNT=${{matrix.test-config.msg_cnt}} \
-          RAND_MSG_DELAX=${{matrix.test-config.rand_msg_delay}} \
+          RAND_MSG_DELAY=${{matrix.test-config.rand_msg_delay}} \
           MIX_ENV=dev \
           mix test
