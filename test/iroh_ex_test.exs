@@ -71,12 +71,10 @@ defmodule IrohExTest do
           # IO.inspect(node, label: "Send msg Node ref")
 
           rand_msg_delay =
-            case
-
-          Integer.parse System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}") do
-            {rand_msg_delay, _} -> rand_msg_delay
-            _ -> @rand_msg_delay
-          end
+            case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
+              {rand_msg_delay, _} -> rand_msg_delay
+              _ -> @rand_msg_delay
+            end
 
           Process.sleep(:rand.uniform(rand_msg_delay))
           # from #{node_id}
