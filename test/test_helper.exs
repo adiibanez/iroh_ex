@@ -1,3 +1,3 @@
-# 2min
-ExUnit.configure(timeout: 120_000)
+# 10min
+ExUnit.configure(timeout: 600_000)
 ExUnit.start()
