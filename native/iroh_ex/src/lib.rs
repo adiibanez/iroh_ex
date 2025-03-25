@@ -320,21 +320,13 @@ pub fn send_message(
     // println!("Message: {:?}", message);
 
     let resource_arc = node_ref.0.clone();
+    let state = resource_arc.lock().unwrap();
 
-    let endpoint = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.endpoint.clone()
-    };
+    let endpoint = { state.endpoint.clone() };
 
-    let gossip = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.gossip.clone()
-    };
+    let gossip = { state.gossip.clone() };
 
-    let sender = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.sender.clone()
-    };
+    let sender = { state.sender.clone() };
 
     let message = Message::AboutMe {
         from: endpoint.node_id(),
