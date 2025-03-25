@@ -30,7 +30,7 @@ jobs:
       with:
         toolchain: ${{ env.TOOLCHAIN }}
         # llvm-tools-preview stuff is essential, breaks the build otherwise
-        components: rust-src, llvm-tools-preview
+        components: rust-src, llvm-tools-preview, clippy
 
     # - name: Install Rust Nightly (Explicit Version) 3rd tier
     #   shell: bash

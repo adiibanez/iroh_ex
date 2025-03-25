@@ -151,11 +151,11 @@ jobs:
         run: |
           mix deps.get
 
-      # - name: "Run tests Nodes: ${{matrix.test-config.node_cnt}} Msgs: ${{matrix.test-config.msg_cnt}}"
-      #   run: |
-      #     # not allowed on github runner: ulimit -n 500000
+      - name: "Run tests Nodes: ${{matrix.test-config.node_cnt}} Msgs: ${{matrix.test-config.msg_cnt}}"
+        run: |
+          # not allowed on github runner: ulimit -n 500000
 
-      #     NODE_CNT=${{matrix.test-config.node_cnt}} \
-      #     MSG_CNT=${{matrix.test-config.msg_cnt}} \
-      #     RAND_MSG_DELAX=${{matrix.test-config.rand_msg_delay}} \
-      #     mix test
+          NODE_CNT=${{matrix.test-config.node_cnt}} \
+          MSG_CNT=${{matrix.test-config.msg_cnt}} \
+          RAND_MSG_DELAX=${{matrix.test-config.rand_msg_delay}} \
+          mix test
