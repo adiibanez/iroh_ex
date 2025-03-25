@@ -42,3 +42,16 @@ tracing = "0.1.41"
 atty = "0.2.14"
 
 [dev-dependencies]
+
+[profile.dev]
+lto = "off" 
+codegen-units = 256
+
+[profile.release]
+lto = "off" 
+codegen-units = 256
+
+#lto = "fat"  # Maximizes optimization across crates
+#codegen-units = 1  # Forces the compiler to optimize all code at once
+#strip = true
+#opt-level = "z"

@@ -7,10 +7,11 @@
 #![allow(non_local_definitions)]
 // #![allow(unexpected_cfgs)]
 // #[cfg(not(clippy))]
-// #[rustler::nif(schedule = "DirtyCpu")]
 
 use iroh::endpoint;
-use rustler::{NifResult, Encoder, Env, Error as RustlerError, LocalPid, OwnedEnv, ResourceArc, Term};
+use rustler::{
+    Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
+};
 
 use atty::Stream;
 use tracing_subscriber::EnvFilter;
@@ -151,7 +152,6 @@ pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
     Ok(secret_key.to_string())
 }
 
-
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn create_node_async(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     // Block inside DirtyCpu to safely wait for the async task
@@ -160,10 +160,10 @@ pub fn create_node_async(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>
     })
 }
 
-// The actual async function that creates a node
 async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let endpoint = Endpoint::builder()
         .discovery_local_network()
+        // .discovery_n0()
         .bind()
         .await
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -296,12 +296,19 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
     Ok(ticket.to_string())
 }
 
-
 #[rustler::nif(schedule = "DirtyIo")]
-fn gen_node_addr(node_ref: ResourceArc<NodeRef>,) -> NifResult<String> {
+fn gen_node_addr(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
     let resource_arc = node_ref.0.clone();
+
+    let endpoint = {
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.endpoint.clone()
+    };
+
+    let node_id = endpoint.node_id();
+
     // let addr = node.local_peer_id().to_string();
-    Ok("dummy address".to_string())
+    Ok(node_id.fmt_short())
 }
 
 #[rustler::nif]
@@ -310,7 +317,7 @@ pub fn send_message(
     node_ref: ResourceArc<NodeRef>,
     message: String,
 ) -> Result<ResourceArc<NodeRef>, RustlerError> {
-    println!("Message: {:?}", message);
+    // println!("Message: {:?}", message);
 
     let resource_arc = node_ref.0.clone();
 
@@ -347,7 +354,6 @@ pub fn connect_node(
     node_ref: ResourceArc<NodeRef>,
     ticket: String,
 ) -> Result<ResourceArc<NodeRef>, RustlerError> {
-
     let node_ref_clone = node_ref.clone();
     RUNTIME.spawn(async move {
         if let Err(e) = async_work(node_ref_clone, ticket).await {
@@ -360,21 +366,24 @@ pub fn connect_node(
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
-fn disconnect_node(
-    node_ref: ResourceArc<NodeRef>,
-) -> NifResult<()> {
+fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
     // let node = node_ref.lock().unwrap();
     // node.disconnect_all();  // Assuming an API to disconnect all peers
     Ok(())
 }
 
-
 #[rustler::nif(schedule = "DirtyIo")]
-fn list_peers(
-    node_ref: ResourceArc<NodeRef>,
-) -> NifResult<Vec<String>> {
+fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     let node = node_ref.0.clone();
-    let peers : Vec<_> = vec![]; //node.peers().iter().map(|p| p.to_string()).collect();
+
+    let endpoint = {
+        let endpoint = node.lock().unwrap();
+        endpoint.endpoint.clone()
+    };
+
+    //endpoint.discovery_stream();
+
+    let peers: Vec<_> = vec![]; //node.peers().iter().map(|p| p.to_string()).collect();
     Ok(peers)
 }
 
@@ -393,8 +402,16 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
         let endpoint = resource_arc.lock().unwrap();
         endpoint.gossip.clone()
     };
+    let endpoint_clone = endpoint_conn.clone();
 
-    tracing::info!("connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}", &endpoint_conn as *const _, topic, nodes);
+    RUNTIME.spawn(log_discovery_stream(endpoint_clone));
+
+    tracing::info!(
+        "connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}",
+        &endpoint_conn as *const _,
+        topic,
+        nodes
+    );
 
     let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
     if nodes.is_empty() {
@@ -408,14 +425,23 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
     }
 
     // 🛠 **Fix: Correctly handle the timeout and subscription errors**
-    let topic_result = timeout(Duration::from_secs(5), gossip.subscribe_and_join(topic, node_ids)).await;
+    let topic_result = timeout(
+        Duration::from_secs(5),
+        gossip.subscribe_and_join(topic, node_ids),
+    )
+    .await;
 
     let topic = match topic_result {
         Err(_) => {
-            return Err(RustlerError::Term(Box::new("⏳ Gossip timeout".to_string())));
+            return Err(RustlerError::Term(Box::new(
+                "⏳ Gossip timeout".to_string(),
+            )));
         }
         Ok(Err(e)) => {
-            return Err(RustlerError::Term(Box::new(format!("❌ Gossip subscribe error: {:?}", e))));
+            return Err(RustlerError::Term(Box::new(format!(
+                "❌ Gossip subscribe error: {:?}",
+                e
+            ))));
         }
         Ok(Ok(topic)) => topic,
     };
@@ -442,7 +468,7 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
                     sleep(Duration::from_secs(2)).await;
                 }
                 None => {
-                    tracing::warn!("⚠️ Gossip event stream ended. Reconnecting...");
+                    tracing::warn!("⚠️ Gossip event stream ended...");
                     sleep(Duration::from_secs(2)).await;
                 }
             }
@@ -451,7 +477,7 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
 
     // 🔄 **Message Processing Loop**
     RUNTIME.spawn(async move {
-        let mut names = HashMap::new();
+        // let mut names = HashMap::new();
         let mut receiver = mpsc_event_receiver_clone.write().await;
 
         while let Some(event) = receiver.recv().await {
@@ -462,12 +488,13 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
                     Ok(message) => {
                         match message {
                             Message::AboutMe { from, name } => {
-                                names.insert(from, name.clone());
-                                tracing::info!("💬 {} MSG {}", from.fmt_short(), name);
+                                // names.insert(from, name.clone());
+                                tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
                             }
                             Message::Message { from, text } => {
-                                let name = names.get(&from).map_or_else(|| from.fmt_short(), String::to_string);
-                                tracing::info!("📝 {}: {}", name, text);
+                                // let name = names.get(&from).map_or_else(|| from.fmt_short(), String::to_string);
+                                // tracing::info!("📝 {}: {}", name, text);
+                                tracing::info!("📝 {}: {}", from, text);
                             }
                         }
                     }
@@ -481,9 +508,6 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
 
     Ok(())
 }
-
-
-
 
 // The protocol definition:
 #[derive(Debug, Clone)]
@@ -505,59 +529,27 @@ impl ProtocolHandler for Echo {
     }
 }
 
-
 async fn log_discovery_stream(endpoint: Endpoint) {
     let mut stream = endpoint.discovery_stream();
 
     while let Some(result) = stream.next().await {
         match result {
             Ok(node_addr) => {
-                tracing::info!("🔍 Discovered Node: {:?}", node_addr);
+                tracing::info!(
+                    "🔍 {:?} Discovered Node: {:?}",
+                    endpoint.node_id().fmt_short(),
+                    node_addr
+                );
             }
             Err(lagged) => {
-                tracing::warn!("🚨 Discovery stream lagged! Some items may have been lost.{:?}", lagged);
+                tracing::warn!(
+                    "🚨 {:?} Discovery stream lagged! Some items may have been lost.{:?}",
+                    endpoint.node_id().fmt_short(),
+                    lagged
+                );
             }
         }
     }
-}
-
-//async fn subscribe_loop(mut receiver: GossipReceiver) -> Result<()> {
-async fn subscribe_loop(mut receiver: GossipReceiver) -> Result<()> {
-    // let receiver_guard = receiver.read().await;
-
-    println!("Initialize subscribe loop");
-
-    // keep track of the mapping between `NodeId`s and names
-    let mut names = HashMap::new();
-    // iterate over all events
-    while let Some(event) = receiver.try_next().await? {
-        // println!("Received event {:?}", event);
-        tracing::info!("Received event {:?}", event);
-        // if the Event is a `GossipEvent::Received`, let's deserialize the message:
-        if let Event::Gossip(GossipEvent::Received(msg)) = event {
-            // deserialize the message and match on the
-            // message type:
-            match Message::from_bytes(&msg.content)? {
-                Message::AboutMe { from, name } => {
-                    // if it's an `AboutMe` message
-                    // add and entry into the map
-                    // and print the name
-                    names.insert(from, name.clone());
-                    tracing::info!("> {} is now known as {}", from.fmt_short(), name);
-                }
-                Message::Message { from, text } => {
-                    // if it's a `Message` message,
-                    // get the name from the map
-                    // and print the message
-                    let name = names
-                        .get(&from)
-                        .map_or_else(|| from.fmt_short(), String::to_string);
-                    tracing::info!("{}: {}", name, text);
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
