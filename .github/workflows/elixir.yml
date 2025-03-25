@@ -152,7 +152,7 @@ jobs:
 
       - name: "Run tests Nodes: ${{matrix.test-config.node_cnt}} Msgs: ${{matrix.test-config.msg_cnt}}"
         run: |
-          ulimit -n 500000
+          # not allowed on github runner: ulimit -n 500000
 
           NODE_CNT=${{matrix.test-config.node_cnt}} \
           MSG_CNT=${{matrix.test-config.msg_cnt}} \
