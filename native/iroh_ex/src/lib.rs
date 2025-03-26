@@ -8,6 +8,7 @@
 // #![allow(unexpected_cfgs)]
 // #[cfg(not(clippy))]
 
+use chrono::Local;
 use iroh::endpoint;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
@@ -135,6 +136,22 @@ impl NodeState {
     }
 }
 
+mod atoms {
+    rustler::atoms! {
+        ok,
+        error,
+
+        // errors
+        lock_fail,
+        not_found,
+        offer_error,
+
+        candidate_error,
+        iroh_gossip_node_discovered,
+        iroh_gossip_message_received,
+    }
+}
+
 fn string_to_32_byte_array(s: &str) -> [u8; 32] {
     let mut result = [0u8; 32];
     let bytes = s.as_bytes();
@@ -161,8 +178,8 @@ pub fn create_node_async(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>
 
 async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let endpoint = Endpoint::builder()
-        // .discovery_local_network()
-        .discovery_n0()
+        .discovery_local_network()
+        // .discovery_n0()
         .bind()
         .await
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -342,8 +359,9 @@ pub fn connect_node(
     ticket: String,
 ) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let node_ref_clone = node_ref.clone();
+
     RUNTIME.spawn(async move {
-        if let Err(e) = async_work(node_ref_clone, ticket).await {
+        if let Err(e) = connect_node_async_internal(node_ref_clone, ticket).await {
             tracing::error!("❌ Error in async task: {:?}", e);
         }
     });
@@ -372,24 +390,37 @@ fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     Ok(peers)
 }
 
-async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<(), RustlerError> {
+async fn connect_node_async_internal(
+    node_ref: ResourceArc<NodeRef>,
+    ticket: String,
+) -> Result<(), RustlerError> {
     let resource_arc = node_ref.0.clone();
 
     let Ticket { topic, nodes } = Ticket::from_str(&ticket)
         .map_err(|e| RustlerError::Term(Box::new(format!("❌ Ticket parsing error: {}", e))))?;
 
+    let pid = {
+        let state = resource_arc.lock().unwrap();
+        state.pid.clone()
+    };
+
     let endpoint_conn = {
-        let endpoint_conn = resource_arc.lock().unwrap();
-        endpoint_conn.endpoint.clone()
+        let state = resource_arc.lock().unwrap();
+        state.endpoint.clone()
     };
 
     let gossip = {
-        let endpoint = resource_arc.lock().unwrap();
-        endpoint.gossip.clone()
+        let state = resource_arc.lock().unwrap();
+        state.gossip.clone()
     };
-    let endpoint_clone = endpoint_conn.clone();
 
-    RUNTIME.spawn(log_discovery_stream(endpoint_clone));
+    let node_id = {
+        let state = resource_arc.lock().unwrap();
+        state.endpoint.node_id().fmt_short()
+    };
+
+    let endpoint_clone = endpoint_conn.clone();
+    RUNTIME.spawn(log_discovery_stream(endpoint_clone, pid.clone()));
 
     tracing::info!(
         "connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}",
@@ -438,6 +469,7 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
 
     // 🔄 **Gossip Event Listener**
     RUNTIME.spawn(async move {
+        let msg_env = OwnedEnv::new();
         tracing::info!("🎧 Listening for gossip events...");
         loop {
             match receiver.next().await {
@@ -463,6 +495,7 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
     // 🔄 **Message Processing Loop**
     RUNTIME.spawn(async move {
         // let mut names = HashMap::new();
+        let mut msg_env = OwnedEnv::new();
         let mut receiver = mpsc_event_receiver_clone.write().await;
 
         while let Some(event) = receiver.recv().await {
@@ -473,6 +506,22 @@ async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()
                     Ok(message) => {
                         match message {
                             Message::AboutMe { from, name } => {
+                                match msg_env.send_and_clear(&pid, |env| {
+                                    (
+                                        atoms::iroh_gossip_message_received(),
+                                        node_id.clone(),
+                                        name.clone(),
+                                    )
+                                        .encode(env)
+                                }) {
+                                    Ok(_) => tracing::debug!("✅ Sent device discovery message"),
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "⚠️ Failed to send discovery message: {:?}",
+                                            e
+                                        )
+                                    }
+                                }
                                 // names.insert(from, name.clone());
                                 tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
                             }
@@ -514,12 +563,27 @@ impl ProtocolHandler for Echo {
     }
 }
 
-async fn log_discovery_stream(endpoint: Endpoint) {
+async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
     let mut stream = endpoint.discovery_stream();
+    let mut msg_env = OwnedEnv::new();
 
     while let Some(result) = stream.next().await {
         match result {
             Ok(node_addr) => {
+                match msg_env.send_and_clear(&pid, |env| {
+                    (
+                        atoms::iroh_gossip_node_discovered(),
+                        endpoint.node_id().fmt_short(),
+                        node_addr.node_id().fmt_short(),
+                    )
+                        .encode(env)
+                }) {
+                    Ok(_) => tracing::debug!("✅ Sent device discovery message"),
+                    Err(e) => {
+                        tracing::debug!("⚠️ Failed to send discovery message: {:?}", e)
+                    }
+                }
+
                 tracing::info!(
                     "🔍 {:?} Discovered Node: {:?}",
                     endpoint.node_id().fmt_short(),
@@ -578,17 +642,18 @@ impl FromStr for Ticket {
 // Rustler init
 
 fn on_load(env: Env, _info: Term) -> bool {
-    // check if pretty terminal or log file
-    let is_tty = atty::is(Stream::Stdout);
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new("iroh=info,iroh_ex=debug") // Default values if RUST_LOG is missing
+    });
 
-    let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=info")) // Enable DEBUG for `iroh_ex`
-        .with_ansi(is_tty)
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_env_filter(filter)
+        .with_ansi(atty::is(atty::Stream::Stdout))
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
 
-    tracing::debug!("Debug message from main!");
+    tracing::debug!("Debug message from iroh_ex!");
 
     println!("Initializing Rust Iroh NIF module ...");
     rustler::resource!(NodeRef, env);
