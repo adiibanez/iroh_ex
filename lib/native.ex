@@ -1,7 +1,9 @@
 defmodule IrohEx.Native do
   use Rustler,
     otp_app: :iroh_ex,
-    crate: :iroh_ex
+    crate: :iroh_ex,
+    skip_compilation?: true,
+    load_from: {:iroh_ex, "priv/native/libiroh_ex"}
 
   # skip_compilation?: true
 

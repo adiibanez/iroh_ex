@@ -77,6 +77,8 @@ jobs:
         run: |
           mkdir -p deps/iroh_ex/target/release
           tar -xzf iroh_ex-${{ matrix.platform }}.tar.gz -C deps/iroh_ex/target/release
+          find deps/iroh_ex/target/release -name "*.a"
+          cp deps/iroh_ex/target/aarch64-apple-darwin/release/libiroh_ex.a priv/native/
 
       - name: Cache ASDF and Toolchains
         uses: actions/cache@v4
