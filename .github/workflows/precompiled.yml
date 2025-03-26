@@ -1,0 +1,219 @@
+name: Precomp NIFs
+
+on:
+  push:
+    #branches:
+    #  - main
+    paths:
+      # Just run on main branch if "native" path changed.
+      - "native/**"
+      # Also run if this file changes.
+      #- ".github/workflows/release.yml"
+      - ".github/workflows/**"
+    tags:
+      # Tags will always run.
+      - "*"
+  pull_request:
+    paths:
+      # In PRs we only run if this file changes.
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+jobs:
+  build_release:
+    name: NIF ${{ matrix.nif }} - ${{ matrix.job.target }} (${{ matrix.job.os }} | ${{ matrix.job.variant || 'default' }})
+    runs-on: ${{ matrix.job.os }}
+
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        nif: ["2.15"]
+        job:
+          - {
+              target: arm-unknown-linux-gnueabihf,
+              os: ubuntu-20.04,
+              use-cross: true,
+            }
+          - {
+              target: aarch64-unknown-linux-gnu,
+              os: ubuntu-20.04,
+              use-cross: true,
+            }
+          # - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, use-cross: true }
+          - { target: aarch64-apple-darwin, os: macos-14 }
+          - { target: x86_64-apple-darwin, os: macos-13 }
+          # - { target: aarch64-apple-ios-sim, os: macos-14} # , cargo-args: "+nightly"
+          # - { target: aarch64-apple-ios, os: macos-14}
+          # - { target: x86_64-apple-ios, os: macos-14}
+          # - { target: x86_64-pc-windows-gnu, os: windows-2022, use-cross: true, rustflags: "-C target-feature=+fxsr,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+popcnt,+avx,+fma" }
+          # - { target: x86_64-pc-windows-gnu, os: windows-2022, use-cross: true, variant: "legacy_cpu" }
+          - {
+              target: x86_64-pc-windows-msvc,
+              os: windows-2019,
+              rustflags: "-C target-feature=+fxsr,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+popcnt,+avx,+fma",
+            }
+          - {
+              target: x86_64-pc-windows-msvc,
+              os: windows-2019,
+              variant: "legacy_cpu",
+            }
+          # - { target: x86_64-unknown-freebsd, os: ubuntu-22.04, use-cross: true, rustflags: "-C target-feature=+fxsr,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+popcnt,+avx,+fma" }
+          # - { target: x86_64-unknown-freebsd, os: ubuntu-22.04, use-cross: true, variant: "legacy_cpu" }
+          - {
+              target: x86_64-unknown-linux-gnu,
+              os: ubuntu-20.04,
+              rustflags: "-C target-feature=+fxsr,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+popcnt,+avx,+fma",
+            }
+          - {
+              target: x86_64-unknown-linux-gnu,
+              os: ubuntu-20.04,
+              variant: "legacy_cpu",
+            }
+          - {
+              target: aarch64-unknown-linux-musl,
+              os: ubuntu-22.04,
+              use-cross: true,
+            } # , rustflags: "-C target-feature=-crt-static -C link-arg=-static"
+          - {
+              target: x86_64-unknown-linux-musl,
+              os: ubuntu-22.04,
+              use-cross: true,
+            }
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Print job info
+        shell: bash
+        run: |
+          echo "JOB MATRIX OS: ${{ matrix.job.os }}"
+          echo "JOB MATRIX target: ${{ matrix.job.target }}"
+          echo "JOB MATRIX variant: ${{ matrix.job.variant }}"
+          echo "JOB MATRIX rustflags: ${{ matrix.job.rustflags }}"
+          echo "JOB MATRIX use-cross: ${{ matrix.job.use-cross }}"
+
+      - name: Extract crate information
+        shell: bash
+        run: |
+          # Get the project version from mix.exs
+          echo "PROJECT_VERSION=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs | head -n1)" >> $GITHUB_ENV
+
+      - name: Remove brew rustup version
+        if: startsWith(matrix.job.os, 'macos-')
+        continue-on-error: true
+        shell: bash
+        run: |
+          brew search rustup
+          brew uninstall rustup
+          brew info rustup
+
+          # curl -o rust-up.sh --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs
+          # sh rust-up.sh -y
+
+          # rustup toolchain install nightly
+          # rustup default nightly
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+
+      # - name: Rust test toolchain
+      #   run: |
+      #     cd native/btleplug_client
+      #     cargo test --all-features
+
+      - name: Maybe add Rust flags for compilation
+        shell: bash
+        run: |
+          echo "RUSTFLAGS=${{ matrix.job.rustflags }}" >> $GITHUB_ENV
+        if: ${{ matrix.job.rustflags }}
+
+      - name: Add target
+        shell: bash
+        run: |
+          rustup default nightly
+          rustup target add ${{ matrix.job.target }}
+          rustup target list
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v0-precomp
+          shared-key: ${{ matrix.job.target }}-${{ matrix.nif }}
+          workspaces: |
+            native/iroh_ex
+
+      # - name: Set CROSS_TARGET_FLAGS for musl
+      #   if: ${{ matrix.job.target == 'aarch64-unknown-linux-musl' || matrix.job.target == 'x86_64-unknown-linux-musl' }}
+      #   shell: bash
+      #   run: |
+      #     echo "Setting CROSS_TARGET_FLAGS for ${{ matrix.job.target }}"
+      #     echo "CROSS_TARGET_FLAGS='-C link-arg=-static'" >> $GITHUB_ENV
+
+      - name: Set toolchain
+        shell: bash
+        run: |
+          rustup override set nightly
+
+      - name: Build the project
+        # if: ${{ !contains(matrix.job.target, 'apple-ios') }}
+        continue-on-error: true
+        id: build-crate
+        uses: philss/rustler-precompiled-action@v1.1.4
+        with:
+          project-name: btleplug_client
+          project-version: ${{ env.PROJECT_VERSION }}
+          target: ${{ matrix.job.target }}
+          nif-version: ${{ matrix.nif }}
+          use-cross: ${{ matrix.job.use-cross }}
+          cross-version: ${{ matrix.job.cross-version || 'from-source' }}
+          project-dir: "native/btleplug_client"
+          cargo-args: ${{ matrix.job.cargo-args }}
+          variant: ${{ matrix.job.variant }}
+        env:
+          CROSS_TARGET_FLAGS: ${{ env.CROSS_TARGET_FLAGS }} # Pass the environment variable
+
+      # - name: Build ios Artifacts
+      #   if: ${{ contains(matrix.job.target, 'apple-ios') }}
+      #   continue-on-error: true
+      #   shell: bash
+      #   id: build-crate-ios
+      #   run: |
+      #     cd native/btleplug_client
+      #     rustup run nightly cargo build --target ${{ matrix.job.target }} --release
+
+      #     # Create a framework (or static library) for iOS
+      #     # Adapt these commands to your project's needs!
+      #     mkdir -p artifacts
+
+      #     cp target/${{ matrix.job.target }}/release/libbtleplug_client.dylib artifacts/libbtleplug_client.dylib
+      #     echo "::set-output name=artifact_path::artifacts/libbtleplug_client.dylib"
+      #     echo "::set-output name=file-name::libbtleplug_client.dylib"
+
+      - name: Artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.build-crate.outputs.file-path }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.job.target }}-${{ steps.build-crate.outputs.file-name }}
+          path: ${{ steps.build-crate.outputs.file-path }}
+          retention-days: 5
+
+      - name: Publish archives and packages
+        uses: softprops/action-gh-release@v2
+        with:
+          make_latest: true
+          append_body: true
+          generate_release_notes: true
+          files: |
+            ${{ steps.build-crate.outputs.file-path }}
+        if: startsWith(github.ref, 'refs/tags/')

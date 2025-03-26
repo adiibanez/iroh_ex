@@ -8,7 +8,6 @@
 // #![allow(unexpected_cfgs)]
 // #[cfg(not(clippy))]
 
-use chrono::Local;
 use iroh::endpoint;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
@@ -29,7 +28,6 @@ use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout, Duration};
 
 use std::fmt;
-use std::ptr;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -73,12 +71,13 @@ const ALPN: &[u8] = b"iroh-example/echo/0";
 
 // const TOPIC_NAME: &str = "ehaaöskdjfasdjföasdjföa";
 
-static TOPIC_NAME: Lazy<String> = Lazy::new(generate_topic_name);
+static TOPIC_NAME: Lazy<String> = Lazy::new(|| generate_topic_name());
 
 fn generate_topic_name() -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(20)
+        .map(char::from)
         .collect()
 }
 
@@ -137,75 +136,6 @@ impl NodeState {
     }
 }
 
-impl Drop for NodeState {
-    fn drop(&mut self) {
-        tracing::info!("🚀 Cleaning up NodeState before exit!");
-
-        let gossip = self.gossip.clone();
-        let router = self.router.clone();
-        let endpoint = self.endpoint.clone();
-
-        // Spawn an async task for cleanup
-        RUNTIME.spawn(async move {
-            gossip.shutdown().await;
-            router.shutdown();
-            endpoint.close().await;
-            tracing::info!("✅ NodeState cleanup complete!");
-        });
-    }
-}
-
-struct GossipWrapper {
-    gossip: iroh_gossip::net::Gossip,
-}
-
-impl Drop for GossipWrapper {
-    fn drop(&mut self) {
-        tracing::warn!(
-            "🚀 GossipWrapper: Gossip {:?} is being dropped!",
-            self.gossip
-        );
-
-        tracing::warn!(
-            "🗑️ GossipWrapper: Gossip {:?} at address: {:p}",
-            self.gossip,
-            ptr::addr_of!(self)
-        );
-    }
-}
-
-struct EndpointWrapper {
-    endpoint: iroh::Endpoint,
-}
-
-impl Drop for EndpointWrapper {
-    fn drop(&mut self) {
-        tracing::info!(
-            "🚀 EndpointWrapper: Endpoint {:?} is being dropped!",
-            self.endpoint.node_id().fmt_short()
-        );
-    }
-}
-
-mod atoms {
-    rustler::atoms! {
-        ok,
-        error,
-
-        // errors
-        lock_fail,
-        not_found,
-        offer_error,
-
-        candidate_error,
-        iroh_gossip_joined,
-        iroh_gossip_neighbor_up,
-        iroh_gossip_neighbor_down,
-        iroh_gossip_node_discovered,
-        iroh_gossip_message_received,
-    }
-}
-
 fn string_to_32_byte_array(s: &str) -> [u8; 32] {
     let mut result = [0u8; 32];
     let bytes = s.as_bytes();
@@ -232,8 +162,8 @@ pub fn create_node_async(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>
 
 async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let endpoint = Endpoint::builder()
-        .discovery_local_network()
-        // .discovery_n0()
+        // .discovery_local_network()
+        .discovery_n0()
         .bind()
         .await
         .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -323,7 +253,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     let topic = RUNTIME
         .block_on(async {
             gossip.subscribe(
-                TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string())),
+                TopicId::from_bytes(string_to_32_byte_array(&*TOPIC_NAME.to_string())),
                 node_ids,
             )
         })
@@ -346,7 +276,7 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 
     let endpoint = { state.endpoint.clone() };
 
-    let topic = TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string()));
+    let topic = TopicId::from_bytes(string_to_32_byte_array(&*TOPIC_NAME.to_string()));
 
     let node_addr = RUNTIME
         .block_on(endpoint.node_addr())
@@ -396,7 +326,7 @@ pub fn send_message(
 
     let message = Message::AboutMe {
         from: endpoint.node_id(),
-        name: message,
+        name: String::from(message),
     };
 
     RUNTIME
@@ -413,9 +343,8 @@ pub fn connect_node(
     ticket: String,
 ) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let node_ref_clone = node_ref.clone();
-
     RUNTIME.spawn(async move {
-        if let Err(e) = connect_node_async_internal(node_ref_clone, ticket).await {
+        if let Err(e) = async_work(node_ref_clone, ticket).await {
             tracing::error!("❌ Error in async task: {:?}", e);
         }
     });
@@ -444,42 +373,24 @@ fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     Ok(peers)
 }
 
-async fn connect_node_async_internal(
-    node_ref: ResourceArc<NodeRef>,
-    ticket: String,
-) -> Result<(), RustlerError> {
+async fn async_work(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<(), RustlerError> {
     let resource_arc = node_ref.0.clone();
 
     let Ticket { topic, nodes } = Ticket::from_str(&ticket)
         .map_err(|e| RustlerError::Term(Box::new(format!("❌ Ticket parsing error: {}", e))))?;
 
-    // let (pid_test, test) = {
-    //     let state = resource_arc.lock().unwrap();
-    //     (state.pid.clone, state.endpoint.clone())
-    // };
-
-    let pid = {
-        let state = resource_arc.lock().unwrap();
-        state.pid.clone()
-    };
-
     let endpoint_conn = {
-        let state = resource_arc.lock().unwrap();
-        state.endpoint.clone()
+        let endpoint_conn = resource_arc.lock().unwrap();
+        endpoint_conn.endpoint.clone()
     };
 
     let gossip = {
-        let state = resource_arc.lock().unwrap();
-        state.gossip.clone()
+        let endpoint = resource_arc.lock().unwrap();
+        endpoint.gossip.clone()
     };
-
-    let node_id_short: String = {
-        let state = resource_arc.lock().unwrap();
-        state.endpoint.node_id().fmt_short()
-    };
-
     let endpoint_clone = endpoint_conn.clone();
-    RUNTIME.spawn(log_discovery_stream(endpoint_clone, pid.clone()));
+
+    RUNTIME.spawn(log_discovery_stream(endpoint_clone));
 
     tracing::info!(
         "connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}",
@@ -499,6 +410,7 @@ async fn connect_node_async_internal(
         }
     }
 
+    // 🛠 **Fix: Correctly handle the timeout and subscription errors**
     let topic_result = timeout(
         Duration::from_secs(5),
         gossip.subscribe_and_join(topic, node_ids),
@@ -527,7 +439,6 @@ async fn connect_node_async_internal(
 
     // 🔄 **Gossip Event Listener**
     RUNTIME.spawn(async move {
-        let msg_env = OwnedEnv::new();
         tracing::info!("🎧 Listening for gossip events...");
         loop {
             match receiver.next().await {
@@ -551,211 +462,33 @@ async fn connect_node_async_internal(
     });
 
     // 🔄 **Message Processing Loop**
-    // RUNTIME.spawn(async move {
-    //     let mut msg_env = OwnedEnv::new();
-    //     let mut receiver = mpsc_event_receiver.write().await;
-
-    //     while let Some(event) = receiver.recv().await {
-    //         tracing::debug!("📩 Received event: {:?}", event);
-
-    //         match event {
-    //             Event::Gossip(GossipEvent::Joined(keys)) => {
-    //                 if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-    //                     (
-    //                         atoms::iroh_gossip_joined(),
-    //                         node_id_short.clone(),
-    //                         keys.len(),
-    //                     )
-    //                         .encode(env)
-    //                 }) {
-    //                     tracing::debug!("⚠️ Failed to send neighbor up message: {:?}", e);
-    //                 }
-    //                 tracing::info!("Neighbor up: {:?}", keys);
-    //             }
-    //             Event::Gossip(GossipEvent::NeighborUp(key)) => {
-    //                 if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-    //                     (
-    //                         atoms::iroh_gossip_neighbor_up(),
-    //                         node_id_short.clone(),
-    //                         key.fmt_short(),
-    //                     )
-    //                         .encode(env)
-    //                 }) {
-    //                     tracing::debug!("⚠️ Failed to send neighbor up message: {:?}", e);
-    //                 }
-    //                 tracing::info!("Neighbor up: {}", key);
-    //             }
-
-    //             Event::Gossip(GossipEvent::NeighborDown(key)) => {
-    //                 if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-    //                     (
-    //                         atoms::iroh_gossip_neighbor_down(),
-    //                         node_id_short.clone(),
-    //                         key.fmt_short(),
-    //                     )
-    //                         .encode(env)
-    //                 }) {
-    //                     tracing::debug!("⚠️ Failed to send neighbor down message: {:?}", e);
-    //                 }
-    //                 tracing::info!("Neighbor down: {}", key);
-    //             }
-    //             Event::Gossip(GossipEvent::Received(msg)) => {
-    //                 match Message::from_bytes(&msg.content) {
-    //                     Ok(Message::AboutMe { from, name }) => {
-    //                         if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-    //                             (
-    //                                 atoms::iroh_gossip_message_received(),
-    //                                 node_id_short.clone(),
-    //                                 name.clone(),
-    //                             )
-    //                                 .encode(env)
-    //                         }) {
-    //                             tracing::debug!("⚠️ Failed to send discovery message: {:?}", e);
-    //                         }
-    //                         tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
-    //                     }
-
-    //                     Ok(Message::Message { from, text }) => {
-    //                         tracing::info!("📝 {}: {}", from, text);
-    //                     }
-
-    //                     Err(e) => {
-    //                         tracing::error!("❌ Failed to parse message: {:?}", e);
-    //                     }
-    //                 }
-    //             }
-
-    //             _ => {
-    //                 tracing::debug!("🔍 Ignored unhandled event: {:?}", event);
-    //             }
-    //         }
-    //     }
-    // });
-
     RUNTIME.spawn(async move {
         // let mut names = HashMap::new();
         let mut receiver = mpsc_event_receiver_clone.write().await;
-        let mut msg_env = OwnedEnv::new();
 
         while let Some(event) = receiver.recv().await {
-            // tracing::debug!("📩 Received event: {:?}", event);
+            tracing::debug!("📩 Received event: {:?}", event);
 
-            match event {
-                Event::Gossip(GossipEvent::Joined(pub_keys)) => {
-                    tracing::info!("Joined {:?} {:?}", node_id_short, pub_keys);
-
-                    if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-                        (
-                            atoms::iroh_gossip_joined(),
-                            pub_keys
-                                .iter()
-                                .map(|pk| pk.fmt_short()) // Apply formatting
-                                .collect::<Vec<_>>() // Collect into a Vec<String>
-                                .join(","),
-                        )
-                            .encode(env)
-                    }) {
-                        tracing::debug!("⚠️ Failed to send discovery message: {:?}", e);
-                    }
-                }
-
-                Event::Gossip(GossipEvent::NeighborUp(pub_key)) => {
-                    tracing::info!("NeighborUp {:?}", pub_key);
-                    if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-                        (
-                            atoms::iroh_gossip_neighbor_up(),
-                            pub_key.clone().fmt_short(),
-                        )
-                            .encode(env)
-                    }) {
-                        tracing::debug!("⚠️ Failed to send discovery message: {:?}", e);
-                    }
-                }
-
-                Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
-                    tracing::info!("NeighborDown {:?}", pub_key);
-                    if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-                        (
-                            atoms::iroh_gossip_neighbor_down(),
-                            pub_key.clone().fmt_short(),
-                        )
-                            .encode(env)
-                    }) {
-                        tracing::debug!("⚠️ Failed to send discovery message: {:?}", e);
-                    }
-                }
-
-                Event::Gossip(GossipEvent::Received(msg)) => {
-                    match Message::from_bytes(&msg.content) {
-                        Ok(message) => {
-                            match message {
-                                Message::AboutMe { from, name } => {
-                                    // names.insert(from, name.clone());
-                                    tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
-
-                                    if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-                                        (
-                                            atoms::iroh_gossip_message_received(),
-                                            node_id_short.clone(),
-                                            name.clone(),
-                                        )
-                                            .encode(env)
-                                    }) {
-                                        tracing::debug!(
-                                            "⚠️ Failed to send discovery message: {:?}",
-                                            e
-                                        );
-                                    }
-                                }
-                                Message::Message { from, text } => {
-                                    // let name = names.get(&from).map_or_else(|| from.fmt_short(), String::to_string);
-                                    // tracing::info!("📝 {}: {}", name, text);
-                                    tracing::info!("📝 {}: {}", from, text);
-                                }
+            if let Event::Gossip(GossipEvent::Received(msg)) = event {
+                match Message::from_bytes(&msg.content) {
+                    Ok(message) => {
+                        match message {
+                            Message::AboutMe { from, name } => {
+                                // names.insert(from, name.clone());
+                                tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
+                            }
+                            Message::Message { from, text } => {
+                                // let name = names.get(&from).map_or_else(|| from.fmt_short(), String::to_string);
+                                // tracing::info!("📝 {}: {}", name, text);
+                                tracing::info!("📝 {}: {}", from, text);
                             }
                         }
-                        Err(e) => {
-                            tracing::error!("❌ Failed to parse message: {:?}", e);
-                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to parse message: {:?}", e);
                     }
                 }
-
-                _ => {
-                    tracing::debug!("🔍 Ignored unhandled event: {:?}", event);
-                }
             }
-
-            // if let Event::Gossip(GossipEvent::Received(msg)) = event {
-            //     match Message::from_bytes(&msg.content) {
-            //         Ok(message) => {
-            //             match message {
-            //                 Message::AboutMe { from, name } => {
-            //                     // names.insert(from, name.clone());
-            //                     tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
-
-            //                     if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-            //                         (
-            //                             atoms::iroh_gossip_message_received(),
-            //                             node_id_short.clone(),
-            //                             name.clone(),
-            //                         )
-            //                             .encode(env)
-            //                     }) {
-            //                         tracing::debug!("⚠️ Failed to send discovery message: {:?}", e);
-            //                     }
-            //                 }
-            //                 Message::Message { from, text } => {
-            //                     // let name = names.get(&from).map_or_else(|| from.fmt_short(), String::to_string);
-            //                     // tracing::info!("📝 {}: {}", name, text);
-            //                     tracing::info!("📝 {}: {}", from, text);
-            //                 }
-            //             }
-            //         }
-            //         Err(e) => {
-            //             tracing::error!("❌ Failed to parse message: {:?}", e);
-            //         }
-            //     }
-            // }
         }
     });
 
@@ -782,27 +515,12 @@ impl ProtocolHandler for Echo {
     }
 }
 
-async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
+async fn log_discovery_stream(endpoint: Endpoint) {
     let mut stream = endpoint.discovery_stream();
-    let mut msg_env = OwnedEnv::new();
 
     while let Some(result) = stream.next().await {
         match result {
             Ok(node_addr) => {
-                match msg_env.send_and_clear(&pid, |env| {
-                    (
-                        atoms::iroh_gossip_node_discovered(),
-                        endpoint.node_id().fmt_short(),
-                        node_addr.node_id().fmt_short(),
-                    )
-                        .encode(env)
-                }) {
-                    Ok(_) => tracing::debug!("✅ Sent device discovery message"),
-                    Err(e) => {
-                        tracing::debug!("⚠️ Failed to send discovery message: {:?}", e)
-                    }
-                }
-
                 tracing::info!(
                     "🔍 {:?} Discovered Node: {:?}",
                     endpoint.node_id().fmt_short(),
@@ -861,17 +579,17 @@ impl FromStr for Ticket {
 // Rustler init
 
 fn on_load(env: Env, _info: Term) -> bool {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("iroh=info,iroh_ex=debug"));
+    // check if pretty terminal or log file
+    let is_tty = atty::is(Stream::Stdout);
 
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(filter)
-        .with_ansi(atty::is(atty::Stream::Stdout))
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(EnvFilter::new("iroh=info,iroh_ex=info")) // Enable DEBUG for `iroh_ex`
+        .with_ansi(is_tty)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
 
-    tracing::debug!("Debug message from iroh_ex!");
+    tracing::debug!("Debug message from main!");
 
     println!("Initializing Rust Iroh NIF module ...");
     rustler::resource!(NodeRef, env);

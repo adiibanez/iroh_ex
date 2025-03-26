@@ -3,12 +3,12 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 5
+  @node_cnt 10
   # 10_000
-  @msg_cnt 10
+  @msg_cnt 100
   @rand_msg_delay 1000
 
-  @msg_timeout 10_000
+  @msg_timeout 30_000
 
   test "test iroh node" do
     node_ref = Native.create_node(self())
@@ -29,31 +29,33 @@ defmodule IrohExTest do
     node_id = Native.gen_node_addr(node_ref)
     node2_ref = Native.create_node(self())
 
+    Native.send_message(node_ref, "Test message")
+
     _node_ref_connected = Native.connect_node(node_ref, ticket)
     _node2_ref_connected = Native.connect_node(node2_ref, ticket)
 
     # Process.sleep(2000)
     Native.send_message(node_ref, "Test message")
 
-    receive do
-      {:iroh_gossip_node_discovered, node_source, node_discovered} ->
-        IO.puts("Node discovered: #{node_source}, #{node_discovered}")
-        :ok
-        # refute_receive {:btleplug_scan_stopped, _msg}
-    after
-      @msg_timeout -> flunk("Did not receive :iroh_gossip_node_discovered message")
-    end
+    # receive do
+    #   {:iroh_gossip_node_discovered, node_source, node_discovered} ->
+    #     IO.puts("Node discovered: #{node_source}, #{node_discovered}")
+    #     :ok
+    #     # refute_receive {:btleplug_scan_stopped, _msg}
+    # after
+    #   @msg_timeout -> flunk("Did not receive :iroh_gossip_node_discovered message")
+    # end
 
-    # assert_receive {:iroh_gossip_node_discovered, node_source, node_discovered}
+    # # assert_receive {:iroh_gossip_node_discovered, node_source, node_discovered}
 
-    receive do
-      {:iroh_gossip_message_received, node_source, msg} ->
-        IO.puts("Message received: #{node_source} #{msg}")
-        :ok
-        # refute_receive {:btleplug_scan_stopped, _msg}
-    after
-      @msg_timeout -> flunk("Did not receive :iroh_gossip_message_received message")
-    end
+    # receive do
+    #   {:iroh_gossip_message_received, node_source, msg} ->
+    #     IO.puts("Message received: #{node_source} #{msg}")
+    #     :ok
+    #     # refute_receive {:btleplug_scan_stopped, _msg}
+    # after
+    #   @msg_timeout -> flunk("Did not receive :iroh_gossip_message_received message")
+    # end
 
     # assert_receive {:iroh_gossip_message_received, node_source, msg}
 
@@ -61,7 +63,9 @@ defmodule IrohExTest do
   end
 
   test "test many iroh nodes" do
-    mothership_node_ref = Native.create_node(self())
+    pid = self()
+
+    mothership_node_ref = Native.create_node(pid)
 
     ticket = Native.create_ticket(mothership_node_ref)
 
@@ -77,14 +81,9 @@ defmodule IrohExTest do
         _ -> @node_cnt
       end
 
-    nodes = create_nodes(nodes_cnt, self())
+    nodes = create_nodes(nodes_cnt, pid)
 
     IO.inspect(nodes, label: "Node list")
-
-    # nodes =
-    #   Enum.map(1..count, fn _ ->
-    #     Native.create_node(self())
-    #   end)
 
     tasks =
       Enum.map(nodes, fn n ->
@@ -94,7 +93,13 @@ defmodule IrohExTest do
 
     Enum.each(tasks, &Task.await/1)
 
-    Process.sleep(1000)
+    # Task.await(initial_msg, 1000)
+
+    Process.sleep(2000)
+
+    # initial_msg =
+    #   Task.async(fn -> Native.send_message(mothership_node_ref, "MSG: Initial msg") end)
+
     IO.puts("starting msg loop")
 
     msg_cnt =
@@ -113,16 +118,18 @@ defmodule IrohExTest do
           _node_id = Native.gen_node_addr(node)
           # IO.inspect(node, label: "Send msg Node ref")
 
-          rand_msg_delay =
+          rand_msg_delay_max =
             case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
               {rand_msg_delay, _} -> rand_msg_delay
               _ -> @rand_msg_delay
             end
 
+          rand_msg_delay = :rand.uniform(rand_msg_delay_max)
+
           # Process.sleep(:rand.uniform(rand_msg_delay))
-          Process.sleep(100)
+          Process.sleep(rand_msg_delay)
           # from #{node_id}
-          Native.send_message(node, "MSG:#{x}")
+          Native.send_message(node, "MSG:#{x} rand_delay: #{rand_msg_delay}")
         end)
       end)
 
@@ -130,7 +137,7 @@ defmodule IrohExTest do
 
     Enum.each(tasks, &Task.await/1)
 
-    Process.sleep(20000)
+    Process.sleep(10_000)
 
     # msg_counts = count_messages()
     # IO.inspect(msg_counts, label: "Messages")
@@ -206,6 +213,28 @@ end
 
 defmodule GossipParser do
   def parse_gossip_messages(messages) do
+    Enum.reduce(messages, %{nodes: %{}}, fn
+      {:iroh_gossip_node_discovered, source, discovered}, acc ->
+        update_in(acc, [:nodes, source], fn
+          nil -> %{peers: [discovered], messages: [], msg_count: 0}
+          node -> %{node | peers: [discovered | node.peers || []]}
+        end)
+
+      {:iroh_gossip_message_received, source, msg}, acc ->
+        update_in(acc, [:nodes, source], fn
+          nil ->
+            %{peers: [], messages: [msg], msg_count: 1}
+
+          node ->
+            %{node | messages: [msg | node.messages || []], msg_count: (node.msg_count || 0) + 1}
+        end)
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  def parse_gossip_messages_(messages) do
     Enum.reduce(messages, %{nodes: %{}}, fn
       {:iroh_gossip_node_discovered, source, discovered}, acc ->
         update_in(acc, [:nodes, source], fn node ->

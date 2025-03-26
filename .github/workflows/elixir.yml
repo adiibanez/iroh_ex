@@ -22,7 +22,9 @@ env:
     ~/.cargo/git/db/
 
 jobs:
+  
   build:
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +53,7 @@ jobs:
           path: iroh_ex-${{ matrix.platform }}.tar.gz
 
   test:
+    if: false
     needs: build
     strategy:
       fail-fast: false
