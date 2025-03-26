@@ -1,4 +1,4 @@
-cargo-features = ["codegen-backend"]
+# cargo-features = ["codegen-backend"]
 
 [package]
 name = "iroh_ex"
@@ -47,7 +47,7 @@ atty = "0.2.14"
 [dev-dependencies]
 
 [profile.dev]
-codegen-backend = "cranelift"
+# codegen-backend = "cranelift"
 debug = false
 lto = "off"
 codegen-units = 1024

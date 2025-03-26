@@ -496,7 +496,7 @@ async fn connect_node_async_internal(
     RUNTIME.spawn(async move {
         // let mut names = HashMap::new();
         let mut msg_env = OwnedEnv::new();
-        let mut receiver = mpsc_event_receiver_clone.write().await;
+        let mut receiver = mpsc_event_receiver_clone.read().await;
 
         while let Some(event) = receiver.recv().await {
             tracing::debug!("📩 Received event: {:?}", event);
