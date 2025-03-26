@@ -78,6 +78,35 @@ jobs:
           mkdir -p deps/iroh_ex/target/release
           tar -xzf iroh_ex-${{ matrix.platform }}.tar.gz -C deps/iroh_ex/target/release
 
+      - name: Cache ASDF and Toolchains
+        uses: actions/cache@v4
+        id: asdf-cache
+        with:
+          path: ~/.asdf
+          key: asdf-cache-${{ runner.os }}-${{ hashFiles('.tool-versions') }}
+          restore-keys: |
+            asdf-cache-${{ runner.os }}-
+
+      - name: Setup asdf env
+        id: asdf-setup
+        run: |
+          echo PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH" >> "$GITHUB_ENV"
+
+      - name: Setup asdf
+        uses: asdf-vm/actions/setup@master
+
+      - name: Install CD tools from .tool-versions
+        continue-on-error: true
+        if: steps.asdf-cache.outputs.cache-hit != 'true'
+        uses: asdf-vm/actions/install@master
+
+      - name: Test asdf tools
+        id: asdf-test
+        run: |
+          erl -version
+          elixir --version
+          mix --version
+
       - name: Install dependencies
         run: |
           mix deps.get
