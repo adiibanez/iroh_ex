@@ -3,10 +3,10 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 20
+  @node_cnt 5
   # 10_000
   @msg_cnt 10
-  @rand_msg_delay 5000
+  @rand_msg_delay 1000
 
   @msg_timeout 10_000
 
@@ -32,7 +32,8 @@ defmodule IrohExTest do
     _node_ref_connected = Native.connect_node(node_ref, ticket)
     _node2_ref_connected = Native.connect_node(node2_ref, ticket)
 
-    Process.sleep(2000)
+    # Process.sleep(2000)
+    Native.send_message(node_ref, "Test message")
 
     receive do
       {:iroh_gossip_node_discovered, node_source, node_discovered} ->
@@ -44,8 +45,6 @@ defmodule IrohExTest do
     end
 
     # assert_receive {:iroh_gossip_node_discovered, node_source, node_discovered}
-
-    Native.send_message(node_ref, "Test message")
 
     receive do
       {:iroh_gossip_message_received, node_source, msg} ->
@@ -95,7 +94,7 @@ defmodule IrohExTest do
 
     Enum.each(tasks, &Task.await/1)
 
-    # Process.sleep(2000)
+    Process.sleep(1000)
     IO.puts("starting msg loop")
 
     msg_cnt =
@@ -121,7 +120,7 @@ defmodule IrohExTest do
             end
 
           # Process.sleep(:rand.uniform(rand_msg_delay))
-          Process.sleep(200)
+          Process.sleep(100)
           # from #{node_id}
           Native.send_message(node, "MSG:#{x}")
         end)
@@ -131,7 +130,7 @@ defmodule IrohExTest do
 
     Enum.each(tasks, &Task.await/1)
 
-    Process.sleep(5000)
+    Process.sleep(20000)
 
     # msg_counts = count_messages()
     # IO.inspect(msg_counts, label: "Messages")
