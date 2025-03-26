@@ -114,6 +114,7 @@ jobs:
 
       - name: Run Tests
         run: |
+          RUST_LOG="iroh=info,iroh_ex=debug" \
           NODE_CNT=${{ matrix.test-config.node_cnt }} \
           MSG_CNT=${{ matrix.test-config.msg_cnt }} \
           RAND_MSG_DELAY=${{ matrix.test-config.rand_msg_delay }} \
