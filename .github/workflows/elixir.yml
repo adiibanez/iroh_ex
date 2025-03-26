@@ -78,6 +78,7 @@ jobs:
           mkdir -p deps/iroh_ex/target/release
           tar -xzf iroh_ex-${{ matrix.platform }}.tar.gz -C deps/iroh_ex/target/release
           LIB_NAME=`find deps/iroh_ex/target/release -name "libiroh_ex.a" -o -name "libiroh_ex.so" -o -name "libiroh_ex.dylib" | head -n 1`
+          mkdir -p priv/native/
           cp $LIB_NAME priv/native/
 
       - name: Cache ASDF and Toolchains

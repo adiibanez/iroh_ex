@@ -29,3 +29,6 @@ iroh_ex-*.tar
 
 # Rust binary artifacts
 /target/
+
+.vscode
+.cargo
