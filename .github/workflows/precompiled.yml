@@ -3,7 +3,7 @@ name: Precomp NIFs
 on:
   push:
     branches:
-     - main
+      - main
     paths:
       # Just run on main branch if "native" path changed.
       - "native/**"
@@ -18,6 +18,8 @@ on:
       # In PRs we only run if this file changes.
       - ".github/workflows/release.yml"
   workflow_dispatch:
+env:
+  PROJECT_VERSION:
 
 jobs:
   build_release:
@@ -196,10 +198,10 @@ jobs:
       #     echo "::set-output name=artifact_path::artifacts/libbtleplug_client.dylib"
       #     echo "::set-output name=file-name::libbtleplug_client.dylib"
 
-    #   - name: Artifact attestation
-    #     uses: actions/attest-build-provenance@v2
-    #     with:
-    #       subject-path: ${{ steps.build-crate.outputs.file-path }}
+      #   - name: Artifact attestation
+      #     uses: actions/attest-build-provenance@v2
+      #     with:
+      #       subject-path: ${{ steps.build-crate.outputs.file-path }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

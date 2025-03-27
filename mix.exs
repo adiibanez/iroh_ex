@@ -1,10 +1,14 @@
 defmodule IrohEx.MixProject do
   use Mix.Project
 
+  @version "0.0.15-alpha"
+  @source_url "https://github.com/adiibanez/iroh_ex"
+  @dev? String.ends_with?(@version, "-dev")
+
   def project do
     [
       app: :iroh_ex,
-      version: "0.0.1",
+      version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps()
