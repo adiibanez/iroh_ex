@@ -2,8 +2,8 @@ name: Precomp NIFs
 
 on:
   push:
-    #branches:
-    #  - main
+    branches:
+     - main
     paths:
       # Just run on main branch if "native" path changed.
       - "native/**"
@@ -196,10 +196,10 @@ jobs:
       #     echo "::set-output name=artifact_path::artifacts/libbtleplug_client.dylib"
       #     echo "::set-output name=file-name::libbtleplug_client.dylib"
 
-      - name: Artifact attestation
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: ${{ steps.build-crate.outputs.file-path }}
+    #   - name: Artifact attestation
+    #     uses: actions/attest-build-provenance@v2
+    #     with:
+    #       subject-path: ${{ steps.build-crate.outputs.file-path }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
