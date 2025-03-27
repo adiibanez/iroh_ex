@@ -76,16 +76,16 @@ jobs:
               os: ubuntu-20.04,
               variant: "legacy_cpu",
             }
-          - {
-              target: aarch64-unknown-linux-musl,
-              os: ubuntu-22.04,
-              use-cross: true,
-            } # , rustflags: "-C target-feature=-crt-static -C link-arg=-static"
-          - {
-              target: x86_64-unknown-linux-musl,
-              os: ubuntu-22.04,
-              use-cross: true,
-            }
+          # - {
+          #     target: aarch64-unknown-linux-musl,
+          #     os: ubuntu-22.04,
+          #     use-cross: true,
+          #   } # , rustflags: "-C target-feature=-crt-static -C link-arg=-static"
+          # - {
+          #     target: x86_64-unknown-linux-musl,
+          #     os: ubuntu-22.04,
+          #     use-cross: true,
+          #   }
 
     steps:
       - name: Checkout source code
