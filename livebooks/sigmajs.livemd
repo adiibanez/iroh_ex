@@ -24,8 +24,8 @@ defmodule SigmaGraph do
   end
 
   # Add a node
-  def add_node(kino, node) do
-    Kino.JS.Live.cast(kino, {:add_node, node})
+  def add_node(kino, node, replace \\ false) do
+    Kino.JS.Live.cast(kino, {:add_node, node, replace})
   end
 
   # Remove a node
@@ -65,11 +65,16 @@ defmodule SigmaGraph do
   end
 
   @impl true
-  def handle_cast({:add_node, node}, ctx) do
+  def handle_cast({:add_node, node, replace}, ctx) do
     ctx = update_in(ctx.assigns.nodes, &Map.put(&1, node.id, node))
     # IO.inspect(node, label: "Add Node")
     # IO.inspect(ctx, label: "Add Node ctx")
-    broadcast_event(ctx, "add_node", node)
+    broadcast_event(
+      ctx,
+      "add_node",
+      node |> Map.put(:replace, replace)
+    )
+
     {:noreply, ctx}
   end
 
@@ -115,6 +120,7 @@ defmodule SigmaGraph do
     """
     import Sigma from 'https://cdn.jsdelivr.net/npm/sigma@3.0.1/+esm';
     import Graph from 'https://cdn.jsdelivr.net/npm/graphology@0.26.0/+esm';
+    import FA2Layout from 'https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/+esm';
 
     export function init(ctx, payload) {
       const container = document.createElement("div");
@@ -139,15 +145,29 @@ defmodule SigmaGraph do
         container
       );
 
+      const settings = {
+        iterations: 250,  // Ensure iterations > 0
+        gravity: 0.1,  
+        scalingRatio: 1.5,
+        slowDown: 10
+      };
+
+      FA2Layout.assign(graph, settings);
+      
       ctx.handleEvent("test", (payload) => {
         console.log("test", payload);
       });
 
       ctx.handleEvent("add_node", (node) => {
         console.log("Add node", node);
-        // alert("Add node");
 
-        if (!graph.hasNode(node.id)) {
+        if (node.replace || !graph.hasNode(node.id)) {
+
+          if(node.replace && graph.hasNode(node.id)) {
+            graph.dropNode(node.id);
+          };
+
+          
           graph.addNode(node.id, {
             x: Math.random(),
             y: Math.random(),
@@ -155,6 +175,8 @@ defmodule SigmaGraph do
             size: 10,
             color: "#1f77b4",
           });
+        } else {
+          console.log("Node " + node.id + " already exists, ignore");
         }
         renderer.refresh();
       });
@@ -170,6 +192,8 @@ defmodule SigmaGraph do
         console.log("add_edge", source, target);
         if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
           graph.addEdge(source, target);
+        } else {
+          console.log("add_edge", "source", graph.hasNode(source), "target", graph.hasNode(target), "edge", graph.hasEdge(source, target));
         }
         renderer.refresh();
       });
@@ -223,14 +247,18 @@ defmodule ProcessMonitor do
     case Process.whereis(__MODULE__) do
       nil ->
         IO.puts("#{__MODULE__} No Process running")
+        SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
         GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
 
       pid when is_pid(pid) ->
         IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
         Process.exit(pid, :kill)
+        SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
         # Wait a moment to ensure the process exits
         Process.sleep(100)
         GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
     end
   end
 
@@ -257,28 +285,30 @@ defmodule ProcessMonitor do
   end
 
   @impl true
-  def handle_info({:trace, pid, :spawn, new_pid, _mfa}, %{graph: graph} = state) do
+  def handle_info({:trace, pid, :spawn, new_pid, mfa}, %{graph: graph} = state) do
     # IO.inspect(graph, label: "Graph debug")
-    # IO.puts("Process #{inspect(new_pid)} spawned by #{inspect(pid)}: #{inspect(mfa)}")
+    IO.puts("Process #{inspect(new_pid)} spawned by #{inspect(pid)}: #{inspect(mfa)}")
+
     SigmaGraph.add_node(graph, %{
       id: "#{format_pid(new_pid)}",
       label: "Process #{format_pid(new_pid)}"
     })
 
-    SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)})
-    {:noreply, state |> Map.put(:graph, graph)}
-    # {:noreply, state}
+    # SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)})
+    # {:noreply, state |> Map.put(:graph, graph)}
+    {:noreply, state}
   end
 
-  def handle_info({:trace, pid, :exit, _reason}, %{graph: graph} = state) do
-    # IO.puts("Process #{inspect(pid)} exited with reason: #{inspect(reason)}")
-    SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
+  def handle_info({:trace, pid, :exit, reason}, %{graph: graph} = state) do
+    IO.puts("Process #{inspect(pid)} exited with reason: #{inspect(reason)}")
+    # SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
     # {:noreply, state |> Map.put(:graph, graph)}
     {:noreply, state}
   end
 
   def handle_info({:trace, pid, :link, linked_pid}, %{graph: graph} = state) do
-    # IO.puts("Process #{inspect(pid)} linked to #{inspect(linked_pid)}")
+    IO.puts("Process #{inspect(pid)} linked to #{inspect(linked_pid)}")
+
     SigmaGraph.add_edge(graph, %{
       source: "#{format_pid(pid)}",
       target: "#{format_pid(linked_pid)}"
@@ -289,12 +319,9 @@ defmodule ProcessMonitor do
   end
 
   def handle_info({:trace, pid, :unlink, unlinked_pid}, %{graph: graph} = state) do
-    # IO.puts("Process #{inspect(pid)} unlinked from #{inspect(unlinked_pid)}")
-    SigmaGraph.remove_edge(graph, %{
-      source: "#{format_pid(pid)}",
-      target: "#{format_pid(unlinked_pid)}"
-    })
+    IO.puts("Process #{inspect(pid)} unlinked from #{inspect(unlinked_pid)}")
 
+    # SigmaGraph.remove_edge(graph, %{source: "#{format_pid(pid)}", target: "#{format_pid(unlinked_pid)}"})
     # {:noreply, state |> Map.put(:graph, graph)}
     {:noreply, state}
   end
