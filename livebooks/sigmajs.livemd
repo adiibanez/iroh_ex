@@ -1,0 +1,314 @@
+# Kino Sigma js
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.15.3"},
+  {:kuzu_nif, "~> 0.7.0"},
+  {:iroh_ex, "~> 0.0.1"},
+  {:rustler, "~> 0.36.1", override: true},
+  {:rustler_precompiled, "~> 0.7"}
+])
+```
+
+## Section
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+defmodule SigmaGraph do
+  use Kino.JS
+  use Kino.JS.Live
+
+  def new do
+    Kino.JS.Live.new(__MODULE__, %{})
+  end
+
+  # Add a node
+  def add_node(kino, node) do
+    Kino.JS.Live.cast(kino, {:add_node, node})
+  end
+
+  # Remove a node
+  def remove_node(kino, node_id) do
+    Kino.JS.Live.cast(kino, {:remove_node, node_id})
+  end
+
+  # Add an edge
+  def add_edge(kino, edge) do
+    Kino.JS.Live.cast(kino, {:add_edge, edge})
+  end
+
+  # Remove an edge
+  def remove_edge(kino, edge) do
+    Kino.JS.Live.cast(kino, {:remove_edge, edge})
+  end
+
+  def test(kino, payload) do
+    Kino.JS.Live.cast(kino, {:test, payload})
+  end
+
+  @impl true
+  def init(_, ctx) do
+    {:ok, assign(ctx, nodes: %{}, edges: [])}
+  end
+
+  @impl true
+  def handle_connect(ctx) do
+    {:ok, ctx.assigns, ctx}
+  end
+
+  @impl true
+  def handle_cast({:test, payload}, ctx) do
+    # IO.inspect(payload, label: "Test")
+    broadcast_event(ctx, "test", payload)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:add_node, node}, ctx) do
+    ctx = update_in(ctx.assigns.nodes, &Map.put(&1, node.id, node))
+    # IO.inspect(node, label: "Add Node")
+    # IO.inspect(ctx, label: "Add Node ctx")
+    broadcast_event(ctx, "add_node", node)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:add_edge, edge}, ctx) do
+    ctx = update_in(ctx.assigns.edges, &[edge | &1])
+    broadcast_event(ctx, "add_edge", edge)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:remove_node, node_id}, ctx) do
+    ctx = update_in(ctx.assigns.nodes, &Map.delete(&1, node_id))
+
+    # Correctly filter out edges that involve the removed node
+    ctx =
+      update_in(
+        ctx.assigns.edges,
+        &Enum.reject(&1, fn edge ->
+          edge.source == node_id || edge.target == node_id
+        end)
+      )
+
+    broadcast_event(ctx, "remove_node", node_id)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:remove_edge, edge}, ctx) do
+    ctx =
+      update_in(
+        ctx.assigns.edges,
+        &Enum.reject(&1, fn e ->
+          edge.source == e.source && edge.target == e.target
+        end)
+      )
+
+    broadcast_event(ctx, "remove_edge", edge)
+    {:noreply, ctx}
+  end
+
+  asset "main.js" do
+    """
+    import Sigma from 'https://cdn.jsdelivr.net/npm/sigma@3.0.1/+esm';
+    import Graph from 'https://cdn.jsdelivr.net/npm/graphology@0.26.0/+esm';
+
+    export function init(ctx, payload) {
+      const container = document.createElement("div");
+      container.style.width = "100%";
+      container.style.height = "500px";
+      ctx.root.appendChild(container);
+
+      //const graph = new Graph();
+      //const renderer = new Sigma(graph, container);
+
+      const graph = new Graph();
+      //graph.addNode("1", { label: "Node 1", x: 0, y: 0, size: 10, color: "blue" });
+      //graph.addNode("2", { label: "Node 2", x: 1, y: 1, size: 20, color: "red" });
+      //graph.addEdge("1", "2", { size: 5, color: "purple" });
+
+      //console.log("graph init", JSON.stringify(graph));
+
+      //console.log("ctx init", JSON.stringify(ctx), JSON.stringify(payload));
+
+      const renderer = new Sigma(
+        graph,
+        container
+      );
+
+      ctx.handleEvent("test", (payload) => {
+        console.log("test", payload);
+      });
+
+      ctx.handleEvent("add_node", (node) => {
+        console.log("Add node", node);
+        // alert("Add node");
+
+        if (!graph.hasNode(node.id)) {
+          graph.addNode(node.id, {
+            x: Math.random(),
+            y: Math.random(),
+            label: node.label,
+            size: 10,
+            color: "#1f77b4",
+          });
+        }
+        renderer.refresh();
+      });
+
+      ctx.handleEvent("remove_node", (nodeId) => {
+        if (graph.hasNode(nodeId)) {
+          graph.dropNode(nodeId);
+        }
+        renderer.refresh();
+      });
+
+      ctx.handleEvent("add_edge", ({ source, target }) => {
+        console.log("add_edge", source, target);
+        if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
+          graph.addEdge(source, target);
+        }
+        renderer.refresh();
+      });
+
+      ctx.handleEvent("remove_edge", ({ source, target }) => {
+        if (graph.hasEdge(source, target)) {
+          graph.dropEdge(source, target);
+        }
+        renderer.refresh();
+      });
+    }
+    """
+  end
+end
+
+graph = SigmaGraph.new()
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+Process.sleep(500)
+# SigmaGraph.test(graph, %{key: "Key", value: "Node A"})
+
+# Add some nodes
+SigmaGraph.add_node(graph, %{id: "A", label: "Node A"})
+SigmaGraph.add_node(graph, %{id: "B", label: "Node B"})
+
+# Add an edge
+SigmaGraph.add_edge(graph, %{source: "A", target: "B"})
+
+# Remove a node
+# SigmaGraph.remove_node(graph, "A")
+
+# Remove an edge
+
+# SigmaGraph.add_node(graph, %{id: "A", label: "Node A"})
+# SigmaGraph.add_node(graph, %{id: "B", label: "Node B"})
+# SigmaGraph.add_edge(graph, %{source: "A", target: "B"})
+# SigmaGraph.remove_node(graph, "Node 1")
+# SigmaGraph.remove_node(graph, "A")
+# SigmaGraph.remove_edge(graph, %{source: "A", target: "B"})
+
+IO.inspect(graph, label: "Outside")
+
+defmodule ProcessMonitor do
+  use GenServer
+
+  # Starts the GenServer and initiates tracing
+  def start_link(graph) do
+    case Process.whereis(__MODULE__) do
+      nil ->
+        IO.puts("#{__MODULE__} No Process running")
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+
+      pid when is_pid(pid) ->
+        IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
+        Process.exit(pid, :kill)
+        # Wait a moment to ensure the process exits
+        Process.sleep(100)
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+    end
+  end
+
+  @impl true
+  def init(graph) do
+    # Set up tracing for all processes
+    # :erlang.trace(:all, true, [:procs, :set_on_spawn, :set_on_link, :set_on_exit])
+    IO.inspect(graph, label: "Init ProcessMonitor")
+    :erlang.trace(:all, true, [:procs])
+    {:ok, %{graph: graph}}
+  end
+
+  defp format_pid(pid) do
+    formatted =
+      inspect(pid)
+      |> String.replace("#", "")
+      |> String.replace("<", "")
+      |> String.replace(">", "")
+      |> String.replace(".", "")
+
+    formatted
+
+    # IO.inspect(formatted, label: "formatted pid")
+  end
+
+  @impl true
+  def handle_info({:trace, pid, :spawn, new_pid, _mfa}, %{graph: graph} = state) do
+    # IO.inspect(graph, label: "Graph debug")
+    # IO.puts("Process #{inspect(new_pid)} spawned by #{inspect(pid)}: #{inspect(mfa)}")
+    SigmaGraph.add_node(graph, %{
+      id: "#{format_pid(new_pid)}",
+      label: "Process #{format_pid(new_pid)}"
+    })
+
+    SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)})
+    {:noreply, state |> Map.put(:graph, graph)}
+    # {:noreply, state}
+  end
+
+  def handle_info({:trace, pid, :exit, _reason}, %{graph: graph} = state) do
+    # IO.puts("Process #{inspect(pid)} exited with reason: #{inspect(reason)}")
+    SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
+    # {:noreply, state |> Map.put(:graph, graph)}
+    {:noreply, state}
+  end
+
+  def handle_info({:trace, pid, :link, linked_pid}, %{graph: graph} = state) do
+    # IO.puts("Process #{inspect(pid)} linked to #{inspect(linked_pid)}")
+    SigmaGraph.add_edge(graph, %{
+      source: "#{format_pid(pid)}",
+      target: "#{format_pid(linked_pid)}"
+    })
+
+    # {:noreply, state |> Map.put(:graph, graph)}
+    {:noreply, state}
+  end
+
+  def handle_info({:trace, pid, :unlink, unlinked_pid}, %{graph: graph} = state) do
+    # IO.puts("Process #{inspect(pid)} unlinked from #{inspect(unlinked_pid)}")
+    SigmaGraph.remove_edge(graph, %{
+      source: "#{format_pid(pid)}",
+      target: "#{format_pid(unlinked_pid)}"
+    })
+
+    # {:noreply, state |> Map.put(:graph, graph)}
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, state}
+  end
+end
+
+ProcessMonitor.start_link(graph)
+
+SigmaGraph.add_node(graph, %{id: "Test", label: "Test label"})
+# receive do 
+# msg -> IO.inspect(msg, label: "Msg received")
+# end
+# IrohMsgAdapter.loop(graph)
+```
