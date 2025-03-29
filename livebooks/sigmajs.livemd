@@ -3,7 +3,7 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:kuzu_nif, "~> 0.7.0"},
+  # {:kuzu_nif, "~> 0.7.0"},
   {:iroh_ex, "~> 0.0.1"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
@@ -120,7 +120,11 @@ defmodule SigmaGraph do
     """
     import Sigma from 'https://cdn.jsdelivr.net/npm/sigma@3.0.1/+esm';
     import Graph from 'https://cdn.jsdelivr.net/npm/graphology@0.26.0/+esm';
+    import graphologyLayout from 'https://cdn.jsdelivr.net/npm/graphology-layout@0.6.1/+esm';
     import FA2Layout from 'https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/+esm';
+    import graphOlogyLayoutForce from 'https://cdn.jsdelivr.net/npm/graphology-layout-force@0.2.4/+esm';
+
+    const { circular } = graphologyLayout;
 
     export function init(ctx, payload) {
       const container = document.createElement("div");
@@ -128,53 +132,47 @@ defmodule SigmaGraph do
       container.style.height = "500px";
       ctx.root.appendChild(container);
 
-      //const graph = new Graph();
-      //const renderer = new Sigma(graph, container);
-
       const graph = new Graph();
-      //graph.addNode("1", { label: "Node 1", x: 0, y: 0, size: 10, color: "blue" });
-      //graph.addNode("2", { label: "Node 2", x: 1, y: 1, size: 20, color: "red" });
-      //graph.addEdge("1", "2", { size: 5, color: "purple" });
-
-      //console.log("graph init", JSON.stringify(graph));
-
-      //console.log("ctx init", JSON.stringify(ctx), JSON.stringify(payload));
-
-      const renderer = new Sigma(
-        graph,
-        container
-      );
-
-      const settings = {
-        iterations: 250,  // Ensure iterations > 0
-        gravity: 0.1,  
-        scalingRatio: 1.5,
-        slowDown: 10
-      };
-
-      FA2Layout.assign(graph, settings);
-      
-      ctx.handleEvent("test", (payload) => {
-        console.log("test", payload);
+      const renderer = new Sigma(graph, container, {
+        labelDensity: 0.2,
+        labelRenderedSizeThreshold: 10,
+        defaultLabelSize: 14,
       });
+
+      // Store full labels separately
+      const fullLabels = {};
+
+      function formatLabel(label) {
+        return label.length > 20 ? label.substring(0, 20) + "..." : label;
+      }
+
+      function adjustLabelPositions() {
+        graph.updateEachNodeAttributes((node, attr) => ({
+          ...attr,
+          labelY: attr.y + 0.2,  // Move label slightly outside the node
+        }));
+      }
 
       ctx.handleEvent("add_node", (node) => {
         console.log("Add node", node);
 
         if (node.replace || !graph.hasNode(node.id)) {
-
-          if(node.replace && graph.hasNode(node.id)) {
+          if (node.replace && graph.hasNode(node.id)) {
             graph.dropNode(node.id);
-          };
+          }
 
-          
+          fullLabels[node.id] = node.label;
+
           graph.addNode(node.id, {
             x: Math.random(),
             y: Math.random(),
-            label: node.label,
+            label: formatLabel(node.label), // Use shortened label by default
             size: 10,
             color: "#1f77b4",
           });
+
+          circular.assign(graph);
+          adjustLabelPositions();
         } else {
           console.log("Node " + node.id + " already exists, ignore");
         }
@@ -184,16 +182,14 @@ defmodule SigmaGraph do
       ctx.handleEvent("remove_node", (nodeId) => {
         if (graph.hasNode(nodeId)) {
           graph.dropNode(nodeId);
+          delete fullLabels[nodeId];
         }
         renderer.refresh();
       });
 
       ctx.handleEvent("add_edge", ({ source, target }) => {
-        console.log("add_edge", source, target);
         if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
           graph.addEdge(source, target);
-        } else {
-          console.log("add_edge", "source", graph.hasNode(source), "target", graph.hasNode(target), "edge", graph.hasEdge(source, target));
         }
         renderer.refresh();
       });
@@ -204,7 +200,20 @@ defmodule SigmaGraph do
         }
         renderer.refresh();
       });
+
+      // Show full label on hover
+      renderer.on("enterNode", ({ node }) => {
+        graph.setNodeAttribute(node, "label", fullLabels[node]);
+        renderer.refresh();
+      });
+
+      // Restore shortened label when mouse leaves
+      renderer.on("leaveNode", ({ node }) => {
+        graph.setNodeAttribute(node, "label", formatLabel(fullLabels[node]));
+        renderer.refresh();
+      });
     }
+
     """
   end
 end
@@ -265,64 +274,81 @@ defmodule ProcessMonitor do
   @impl true
   def init(graph) do
     # Set up tracing for all processes
-    # :erlang.trace(:all, true, [:procs, :set_on_spawn, :set_on_link, :set_on_exit])
     IO.inspect(graph, label: "Init ProcessMonitor")
     :erlang.trace(:all, true, [:procs])
     {:ok, %{graph: graph}}
   end
 
   defp format_pid(pid) do
-    formatted =
-      inspect(pid)
-      |> String.replace("#", "")
-      |> String.replace("<", "")
-      |> String.replace(">", "")
-      |> String.replace(".", "")
+    formatted = inspect(pid)
+    # |> String.replace("#", "") # Original commented out lines
+    # |> String.replace("<", "")
+    # |> String.replace(">", "")
+    # |> String.replace(".", "")
 
     formatted
 
-    # IO.inspect(formatted, label: "formatted pid")
+    # IO.inspect(formatted, label: "formatted pid") # Original commented out line
   end
 
   @impl true
   def handle_info({:trace, pid, :spawn, new_pid, mfa}, %{graph: graph} = state) do
-    # IO.inspect(graph, label: "Graph debug")
+    # IO.inspect(graph, label: "Graph debug") # Original commented out line
     IO.puts("Process #{inspect(new_pid)} spawned by #{inspect(pid)}: #{inspect(mfa)}")
 
     SigmaGraph.add_node(graph, %{
-      id: "#{format_pid(new_pid)}",
-      label: "Process #{format_pid(new_pid)}"
+      id: "#{format_pid(pid)}",
+      label: "Process #{format_pid(pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
     })
 
-    # SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)})
-    # {:noreply, state |> Map.put(:graph, graph)}
+    SigmaGraph.add_node(graph, %{
+      id: "#{format_pid(new_pid)}",
+      label: "Process #{format_pid(new_pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
+    })
+
+    # SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)}) # Original commented out line
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
     {:noreply, state}
   end
 
   def handle_info({:trace, pid, :exit, reason}, %{graph: graph} = state) do
     IO.puts("Process #{inspect(pid)} exited with reason: #{inspect(reason)}")
-    # SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
-    # {:noreply, state |> Map.put(:graph, graph)}
+    SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
     {:noreply, state}
   end
 
   def handle_info({:trace, pid, :link, linked_pid}, %{graph: graph} = state) do
     IO.puts("Process #{inspect(pid)} linked to #{inspect(linked_pid)}")
+    SigmaGraph.add_node(graph, %{id: "#{format_pid(pid)}", label: "Process #{format_pid(pid)}"})
+
+    SigmaGraph.add_node(graph, %{
+      id: "#{format_pid(linked_pid)}",
+      label: "Process #{format_pid(linked_pid)}"
+    })
 
     SigmaGraph.add_edge(graph, %{
       source: "#{format_pid(pid)}",
       target: "#{format_pid(linked_pid)}"
     })
 
-    # {:noreply, state |> Map.put(:graph, graph)}
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
     {:noreply, state}
   end
 
   def handle_info({:trace, pid, :unlink, unlinked_pid}, %{graph: graph} = state) do
     IO.puts("Process #{inspect(pid)} unlinked from #{inspect(unlinked_pid)}")
 
-    # SigmaGraph.remove_edge(graph, %{source: "#{format_pid(pid)}", target: "#{format_pid(unlinked_pid)}"})
-    # {:noreply, state |> Map.put(:graph, graph)}
+    SigmaGraph.remove_edge(graph, %{
+      source: "#{format_pid(pid)}",
+      target: "#{format_pid(unlinked_pid)}"
+    })
+
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
     {:noreply, state}
   end
 
@@ -331,10 +357,107 @@ defmodule ProcessMonitor do
   end
 end
 
-ProcessMonitor.start_link(graph)
+defmodule TraceParser do
+  def extract_mfa({mod, fun, args}) when is_atom(mod) and is_atom(fun) and is_list(args) do
+    "#{mod}.#{fun}/#{length(args)}"
+  end
 
-SigmaGraph.add_node(graph, %{id: "Test", label: "Test label"})
-# receive do 
+  def extract_mfa({:erlang, :apply, [func, _]}) when is_function(func, 0) do
+    func_info = inspect(func)
+
+    case String.split(func_info, " in ") do
+      [_, mfa] -> mfa
+      _ -> "UnknownFunction"
+    end
+  end
+
+  def extract_mfa(_), do: "UnknownFunction"
+end
+
+defmodule Worker do
+  use GenServer
+
+  def start_link(_) do
+    # Unique name
+    GenServer.start_link(__MODULE__, %{}, name: :erlang.make_ref())
+  end
+
+  def init(_) do
+    # Live for 2-5 seconds
+    lifespan = :rand.uniform(3000) + 2000
+    Process.send_after(self(), :die, lifespan)
+    {:ok, %{}}
+  end
+
+  def handle_info(:die, _state) do
+    IO.puts("Worker #{inspect(self())} exiting")
+    exit(:normal)
+  end
+end
+
+defmodule WorkerSupervisor do
+  use Supervisor
+
+  def start_link(_) do
+    Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  def init(:ok) do
+    children = [
+      # Defines a Worker child spec
+      {Worker, []}
+    ]
+
+    Supervisor.init(children, strategy: :simple_one_for_one)
+  end
+end
+
+defmodule WorkerManager do
+  use GenServer
+
+  def start_link(_) do
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  def init(:ok) do
+    # Start workers after a delay
+    Process.send_after(self(), :start_workers, :rand.uniform(5000))
+    {:ok, %{}}
+  end
+
+  def handle_info(:start_workers, state) do
+    # 1 to 10 workers
+    num_workers = :rand.uniform(10)
+
+    for _ <- 1..num_workers do
+      Supervisor.start_child(WorkerSupervisor, [])
+    end
+
+    IO.puts("Spawned #{num_workers} workers")
+
+    # Schedule the next batch
+    Process.send_after(self(), :start_workers, :rand.uniform(5000))
+
+    {:noreply, state}
+  end
+end
+
+defmodule SupervisorExample do
+  def start_link do
+    # Start the Worker Supervisor
+    {:ok, _} = WorkerSupervisor.start_link([])
+
+    # Start the Worker Manager
+    {:ok, _} = WorkerManager.start_link([])
+  end
+end
+
+pid = ProcessMonitor.start_link(graph)
+# Start the system
+sup_pid = SupervisorExample.start_link()
+
+# SigmaGraph.add_node(graph, %{id: "Test", label: "Test label"})
+# receive do
 # msg -> IO.inspect(msg, label: "Msg received")
 # end
 # IrohMsgAdapter.loop(graph)
