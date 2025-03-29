@@ -254,121 +254,12 @@ defmodule IrohObserver do
     {:ok, %{graph: graph}}
   end
 
-  def init_(graph) do
-    # Set up tracing for all processes
-    # IO.inspect(graph, label: "Init ProcessMonitor")
-    pid = self()
-
-    mothership_node_ref = Native.create_node(pid)
-
-    ticket = Native.create_ticket(mothership_node_ref)
-
-    IO.inspect(ticket, label: "Node1 ticket")
-
-    # connect main node
-    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
-    Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
-
-    nodes_cnt =
-      case Integer.parse(System.get_env("NODES_CNT", "#{@node_cnt}")) do
-        {nodes_cnt, _} -> nodes_cnt
-        _ -> @node_cnt
-      end
-
-    nodes = create_nodes(nodes_cnt, pid)
-    IO.inspect(nodes, label: "Node list")
-
-    tasks =
-      Enum.map(nodes, fn n ->
-        IO.inspect(n, label: "Connect Node ref")
-        node_addr = Native.gen_node_addr(n)
-
-        SigmaGraph.add_node(
-          graph,
-          %{id: "#{node_addr}", layout: "ring", label: "#{node_addr}:Started"},
-          true
-        )
-
-        Task.async(fn ->
-          Native.connect_node(n, ticket)
-
-          SigmaGraph.add_node(
-            graph,
-            %{id: "#{node_addr}", layout: "ring", label: "#{node_addr}:Connected"},
-            true
-          )
-        end)
-      end)
-
-    Enum.each(tasks, &Task.await/1)
-
-    # Task.await(initial_msg, 1000)
-
-    Process.sleep(5000)
-
-    # initial_msg =
-    #   Task.async(fn -> Native.send_message(mothership_node_ref, "MSG: Initial msg") end)
-
-    IO.puts("starting msg loop")
-
-    msg_cnt =
-      case Integer.parse(System.get_env("MSG_CNT", "#{@msg_cnt}")) do
-        {msg_cnt, _} -> msg_cnt
-        _ -> @msg_cnt
-      end
-
-    msg_receipts = %{}
-
-    tasks =
-      Enum.map(1..msg_cnt, fn x ->
-        Task.async(fn ->
-          # IO.puts("Nodes: #{Enum.count(nodes)}")
-          # node = Enum.at(nodes, :rand.uniform(Enum.count(nodes) - 1))
-          # node = Enum.random(nodes)
-          node = mothership_node_ref
-          _node_id = Native.gen_node_addr(node)
-          # IO.inspect(node, label: "Send msg Node ref")
-
-          rand_msg_delay_max =
-            case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
-              {rand_msg_delay, _} -> rand_msg_delay
-              _ -> @rand_msg_delay
-            end
-
-          rand_msg_delay = :rand.uniform(rand_msg_delay_max)
-
-          # Process.sleep(:rand.uniform(rand_msg_delay))
-          Process.sleep(rand_msg_delay)
-
-          #   rand_delay: #{rand_msg_delay}
-          msg = "MSG:#{x}"
-          # from #{node_id}
-          Native.send_message(node, msg)
-          SigmaGraph.add_node(graph, %{id: msg, layout: "grid", label: msg}, true)
-          Map.put(msg_receipts, msg, [])
-
-          # Enum.each(nodes ++ [mothership_node_ref], fn node -> 
-          #  node_addr = Native.gen_node_addr(node)
-          #  SigmaGraph.add_edge(graph, %{source: msg, target: node_addr, type: "PENDING", color: "orange"})
-          # end)
-        end)
-      end)
-
-    IO.inspect(Enum.count(tasks), label: "Tasks")
-
-    Enum.each(tasks, &Task.await/1)
-
-    Process.sleep(1_000)
-
-    # msg_counts = count_messages()
-    # IO.inspect(msg_counts, label: "Messages")
-
-    # {:messages, messages} = :erlang.process_info(self(), :messages)
-
-    {:ok, %{graph: graph, nodes: nodes ++ [mothership_node_ref], msg_receipts: msg_receipts}}
-  end
-
-  def handle_info({:setup_nodes, node_cnt}, %{graph: graph} = state) do
+  @impl true
+  def handle_call(
+        {:setup_nodes, node_cnt},
+        _from,
+        %{graph: graph} = state
+      ) do
     pid = self()
 
     mothership_node_ref = Native.create_node(pid)
@@ -384,7 +275,8 @@ defmodule IrohObserver do
     IO.inspect(nodes, label: "Node list")
 
     # draw nodes
-    Enum.each(nodes ++ [mothership_node_ref], fn node ->
+
+    Enum.each(nodes, fn node ->
       node_addr = Native.gen_node_addr(node)
 
       SigmaGraph.add_node(
@@ -394,27 +286,23 @@ defmodule IrohObserver do
       )
     end)
 
-    {:noreply,
+    {:reply, nodes,
      state
      |> Map.put(:ticket, ticket)
      |> Map.put(:mothership_node, mothership_node_ref)
-     |> Map.put(:nodes, nodes ++ [mothership_node_ref])}
+     |> Map.put(:nodes, nodes)}
   end
 
-  def handle_info(
+  @impl true
+  def handle_call(
         {:connect_nodes},
+        _from,
         %{graph: graph, ticket: ticket, mothership_node: mothership_node, nodes: nodes} = state
       ) do
     tasks =
       Enum.map(nodes, fn n ->
         IO.inspect(n, label: "Connect Node ref")
         node_addr = Native.gen_node_addr(n)
-
-        SigmaGraph.add_node(
-          graph,
-          %{id: "#{node_addr}", layout: "ring", label: "#{node_addr}:Started"},
-          true
-        )
 
         Task.async(fn ->
           Native.connect_node(n, ticket)
@@ -428,22 +316,31 @@ defmodule IrohObserver do
       end)
 
     Enum.each(tasks, &Task.await/1)
-    {:noreply, state}
+    {:reply, [], state}
   end
 
-  def handle_info(
-        {:send_messages, msg_cnt},
+  @impl true
+  def handle_call(
+        {:send_messages, msg_cnt, use_random_node},
+        _from,
         %{graph: graph, ticket: ticket, mothership_node: mothership_node, nodes: nodes} = state
       ) do
     msg_receipts = %{}
+
+    no_random_node = Enum.random(nodes)
 
     tasks =
       Enum.map(1..msg_cnt, fn x ->
         Task.async(fn ->
           # IO.puts("Nodes: #{Enum.count(nodes)}")
           # node = Enum.at(nodes, :rand.uniform(Enum.count(nodes) - 1))
-          # node = Enum.random(nodes)
-          node = mothership_node
+
+          node =
+            case use_random_node do
+              false -> no_random_node
+              true -> Enum.random(nodes)
+            end
+
           _node_id = Native.gen_node_addr(node)
           # IO.inspect(node, label: "Send msg Node ref")
 
@@ -470,27 +367,13 @@ defmodule IrohObserver do
     IO.inspect(Enum.count(tasks), label: "Tasks")
 
     Enum.each(tasks, &Task.await/1)
-    {:noreply, %{state | msg_receipts: msg_receipts}}
+    {:reply, msg_receipts, Map.put(state, :msg_receipts, msg_receipts)}
   end
 
-  def handle_info({:iroh_gossip_message_received, target, msg}, %{graph: graph} = state) do
-    # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
-
-    {:noreply,
-     update_in(state, [:msg_receipts, msg], fn receipts ->
-       IO.puts("receipts #{msg} #{inspect(receipts)}")
-       # Ensure list initialization
-       (receipts || []) ++ [target]
-     end)}
-  end
-
-  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: graph} = state) do
-    SigmaGraph.add_edge(graph, %{source: source, target: target})
-    {:noreply, state}
-  end
-
-  def handle_info(
+  @impl true
+  def handle_call(
         :draw_missing,
+        _from,
         %{graph: graph, nodes: nodes, msg_receipts: msg_receipts} = state
       ) do
     node_ids =
@@ -528,6 +411,22 @@ defmodule IrohObserver do
       end
     end)
 
+    {:reply, [], state}
+  end
+
+  def handle_info({:iroh_gossip_message_received, target, msg}, %{graph: graph} = state) do
+    # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
+
+    {:noreply,
+     update_in(state, [:msg_receipts, msg], fn receipts ->
+       IO.puts("receipts #{msg} #{inspect(receipts)}")
+       # Ensure list initialization
+       (receipts || []) ++ [target]
+     end)}
+  end
+
+  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: graph} = state) do
+    SigmaGraph.add_edge(graph, %{source: source, target: target})
     {:noreply, state}
   end
 
@@ -673,6 +572,10 @@ defmodule SigmaGraph do
     Kino.JS.Live.cast(kino, {:remove_edge, edge})
   end
 
+  def clear(kino) do
+    Kino.JS.Live.cast(kino, :clear)
+  end
+
   def test(kino, payload) do
     Kino.JS.Live.cast(kino, {:test, payload})
   end
@@ -691,6 +594,13 @@ defmodule SigmaGraph do
   def handle_cast({:test, payload}, ctx) do
     # IO.inspect(payload, label: "Test")
     broadcast_event(ctx, "test", payload)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast(:clear, ctx) do
+    # IO.inspect(payload, label: "Test")
+    broadcast_event(ctx, "clear", [])
     {:noreply, ctx}
   end
 
@@ -821,6 +731,11 @@ defmodule SigmaGraph do
         }));
       }
 
+      ctx.handleEvent("clear", (n) => {
+        graph.clear();
+        renderer.refresh();
+      });
+
       ctx.handleEvent("add_node", (node) => {
         console.log("Add node", node);
 
@@ -913,11 +828,15 @@ Process.sleep(500)
 
 IO.inspect(graph, label: "Outside")
 
+SigmaGraph.clear(graph)
+
 {:ok, observer_pid} = IrohObserver.start_link(graph)
-Process.send_after(observer_pid, {:setup_nodes, 10}, 0)
-Process.send_after(observer_pid, {:connect_nodes}, 1000)
-Process.send_after(observer_pid, {:send_messages, 10}, 2000)
-Process.send_after(observer_pid, :draw_missing, 5000)
+GenServer.call(observer_pid, {:setup_nodes, 50})
+# Process.sleep(1000)
+GenServer.call(observer_pid, {:connect_nodes})
+Process.sleep(5000)
+GenServer.call(observer_pid, {:send_messages, 10, true})
+GenServer.call(observer_pid, :draw_missing)
 
 # pid = ProcessMonitor.start_link(graph)
 # Start the system
