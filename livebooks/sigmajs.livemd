@@ -1,10 +1,14 @@
+<!-- livebook:{"app_settings":{"access_type":"public","show_source":true,"slug":"iroh-observer"}} -->
+
 # Kino Sigma js
 
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
   # {:kuzu_nif, "~> 0.7.0"},
-  {:iroh_ex, "~> 0.0.1"},
+  # {:iroh_ex, "~> 0.0.1"},
+  {:iroh_ex,
+   path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -329,62 +333,56 @@ defmodule IrohObserver do
         _from,
         %{graph: graph, ticket: ticket, mothership_node: mothership_node, nodes: nodes} = state
       ) do
-    msg_receipts = %{}
-
     no_random_node = Enum.random(nodes)
 
-    tasks =
-      Enum.map(1..msg_cnt, fn x ->
+    msg_sender_receipts =
+      1..msg_cnt
+      |> Enum.map(fn x ->
         Task.async(fn ->
-          # IO.puts("Nodes: #{Enum.count(nodes)}")
-          # node = Enum.at(nodes, :rand.uniform(Enum.count(nodes) - 1))
-
           node =
-            case use_random_node do
-              false -> no_random_node
-              true -> Enum.random(nodes)
+            if use_random_node do
+              Enum.random(nodes)
+            else
+              no_random_node
             end
 
           node_id = Native.gen_node_addr(node)
-          # IO.inspect(node, label: "Send msg Node ref")
 
-          rand_msg_delay_max =
-            case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
-              {rand_msg_delay, _} -> rand_msg_delay
-              _ -> @rand_msg_delay
-            end
-
-          rand_msg_delay = :rand.uniform(rand_msg_delay_max)
-
-          # Process.sleep(:rand.uniform(rand_msg_delay))
+          rand_msg_delay = :rand.uniform(@rand_msg_delay)
           Process.sleep(rand_msg_delay)
 
-          #   rand_delay: #{rand_msg_delay}
           msg = "MSG:#{x}"
-          # from #{node_id}
-          Native.send_message(node, msg)
-
           timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
 
-          Map.put(msg_receipts, msg, %{
+          SigmaGraph.add_node(
+            graph,
+            %{id: msg, layout: "grid", label: msg, color: "orange"},
+            true
+          )
+
+          receipt = %{
             sender: node_id,
             timestamp: timestamp,
             receipts: []
-          })
+          }
 
-          IO.inspect(msg_receipts, label: "After add #{msg}")
-
-          SigmaGraph.add_node(graph, %{id: msg, layout: "grid", label: msg}, true)
+          {msg, receipt}
         end)
       end)
+      |> Enum.map(&Task.await/1)
+      |> Map.new()
 
-    # IO.inspect(Enum.count(tasks), label: "Tasks")
+    msg_receipts =
+      msg_sender_receipts
+      |> Map.new(fn {msg, _receipt} -> {msg, []} end)
 
-    Enum.each(tasks, &Task.await/1)
+    IO.puts("#{inspect(msg_receipts)} Final Receipts")
+    IO.puts("#{inspect(msg_sender_receipts)} Final Sender Receipts")
 
-    IO.inspect(msg_receipts, label: "Empty receipts")
-
-    {:reply, msg_receipts, Map.put(state, :msg_receipts, msg_receipts)}
+    {:reply, msg_receipts,
+     state
+     |> Map.put(:msg_sender_receipts, msg_sender_receipts)
+     |> Map.put(:msg_receipts, msg_receipts)}
   end
 
   @impl true
@@ -399,12 +397,19 @@ defmodule IrohObserver do
       end)
 
     IO.inspect(node_ids, label: "node ids")
+    IO.inspect(msg_receipts, label: "receipts")
 
     data = []
+    msg_receipts = []
 
     Enum.each(msg_receipts, fn {msg, receipts} ->
       # Find missing node IDs
-      missing_nodes = node_ids -- Enum.map(receipts || [], & &1.node_id)
+
+      IO.inspect(receipts, label: "Receipts")
+      missing_nodes = node_ids -- receipts
+
+      IO.inspect(missing_nodes, label: "Missing nodes")
+      # Enum.map(receipts || [], & &1.sender)
 
       case missing_nodes do
         [] ->
@@ -434,50 +439,32 @@ defmodule IrohObserver do
       end
     end)
 
-    Kino.DataTable.update(datatable, data)
+    # Kino.DataTable.update(datatable, data)
 
     {:reply, [], state}
   end
 
-  def handle_info(
-        {:iroh_gossip_message_received, target, msg},
-        %{graph: _graph, msg_receipts: msg_receipts} = state
-      ) do
-    # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
-
-    IO.inspect(msg_receipts, label: "Msg receipts before update")
-
-    timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
-
-    msg_receipts =
-      update_in(msg_receipts, [msg, :receipts], fn receipts ->
-        # IO.puts("receipts #{msg} #{inspect(receipts)}")
-        # Ensure list initialization
-
-        # (receipts || []) ++ [target]
-
-        (receipts || []) ++
-          [
-            %{
-              timestamp: timestamp,
-              node_id: target
-            }
-          ]
-      end)
-
-    {:noreply,
-     state
-     |> Map.put(:msg_receipts, msg_receipts)}
+  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{graph: graph} = state) do
+    # IO.puts("iroh_gossip_neighbor_up #{source} #{target}")
+    SigmaGraph.add_edge(graph, %{source: source, target: target})
+    {:noreply, state}
   end
 
-  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: graph} = state) do
-    SigmaGraph.add_edge(graph, %{source: source, target: target})
+  def handle_info({:iroh_gossip_neighbor_down, source, target}, %{graph: graph} = state) do
+    # IO.puts("iroh_gossip_neighbor_down #{source} #{target}")
+    SigmaGraph.remove_edge(graph, %{source: source, target: target})
+    {:noreply, state}
+  end
+
+  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: _graph} = state) do
+    # SigmaGraph.add_edge(graph, %{source: source, target: target})
+    # IO.puts("iroh_gossip_node_discovered #{source} #{target}")
     {:noreply, state}
   end
 
   @impl true
   def handle_info(msg, state) do
-    # IO.inspect(msg, label: "#{__MODULE__} handle_info catchall")
+    IO.inspect(msg, label: "#{__MODULE__} handle_info catchall")
     {:noreply, state}
   end
 
@@ -861,47 +848,18 @@ Kino.Layout.grid([graph, datatable], columns: 1)
 ```
 
 ```elixir
-Process.sleep(500)
-# SigmaGraph.test(graph, %{key: "Key", value: "Node A"})
-
-# Add some nodes
-# SigmaGraph.add_node(graph, %{id: "A", label: "Node A"})
-# SigmaGraph.add_node(graph, %{id: "B", label: "Node B"})
-
-# Add an edge
-# SigmaGraph.add_edge(graph, %{source: "A", target: "B"})
-
-# Remove a node
-# SigmaGraph.remove_node(graph, "A")
-
-# Remove an edge
-
-# SigmaGraph.add_node(graph, %{id: "A", label: "Node A"})
-# SigmaGraph.add_node(graph, %{id: "B", label: "Node B"})
-# SigmaGraph.add_edge(graph, %{source: "A", target: "B"})
-# SigmaGraph.remove_node(graph, "Node 1")
-# SigmaGraph.remove_node(graph, "A")
-# SigmaGraph.remove_edge(graph, %{source: "A", target: "B"})
-
-# IO.inspect(graph, label: "Outside")
-
 SigmaGraph.clear(graph)
 
 {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
-GenServer.call(observer_pid, {:setup_nodes, 10})
-# Process.sleep(1000)
+GenServer.call(observer_pid, {:setup_nodes, 5})
+Process.sleep(1000)
 GenServer.call(observer_pid, {:connect_nodes})
 Process.sleep(5000)
-GenServer.call(observer_pid, {:send_messages, 20, true})
+
+GenServer.call(observer_pid, {:send_messages, 12, true})
 GenServer.call(observer_pid, :draw_missing)
 
 # pid = ProcessMonitor.start_link(graph)
 # Start the system
 # sup_pid = SupervisorExample.start_link()
-
-# SigmaGraph.add_node(graph, %{id: "Test", label: "Test label"})
-# receive do
-# msg -> IO.inspect(msg, label: "Msg received")
-# end
-# IrohMsgAdapter.loop(graph)
 ```
