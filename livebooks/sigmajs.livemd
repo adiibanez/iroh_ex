@@ -1,6 +1,6 @@
 <!-- livebook:{"app_settings":{"access_type":"public","show_source":true,"slug":"iroh-observer"}} -->
 
-# Graph Observer
+# Graphviz Observer
 
 ```elixir
 Mix.install([
@@ -519,11 +519,15 @@ defmodule IrohObserver do
 
   @impl true
   def handle_call(
-        {:setup_nodes, node_cnt},
+        {:setup_nodes, node_cnt, custom_pid},
         _from,
         %{graph: graph} = state
       ) do
-    pid = self()
+    pid =
+      case is_nil(custom_pid) do
+        true -> self()
+        false -> custom_pid
+      end
 
     mothership_node_ref = Native.create_node(pid)
     ticket = Native.create_ticket(mothership_node_ref)
@@ -795,6 +799,10 @@ Kino.Layout.grid([graph, datatable], columns: 1)
 ```elixir
 # UI Controls
 nodes_input = Kino.Input.number("Number of Nodes", default: 10, min: 3)
+
+swarming_delay_input =
+  Kino.Input.number("Delay after connect, before sending messages", default: 1000, min: 0)
+
 messages_input = Kino.Input.number("Number of Messages", default: 12, min: 1)
 random_sender_input = Kino.Input.checkbox("Use Random Sender", default: true)
 start_button = Kino.Control.button("Start Simulation")
@@ -803,32 +811,49 @@ start_button = Kino.Control.button("Start Simulation")
 grid =
   Kino.Layout.grid([
     nodes_input,
+    swarming_delay_input,
     messages_input,
     random_sender_input,
     start_button
   ])
+
+defmodule IrohLogger do
+  use GenServer
+  @impl true
+  def init(init_arg) do
+    {:ok, init_arg}
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    IO.puts("Catchall #{inspect(msg)}")
+    {:noreply, state}
+  end
+end
+
+{:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
 
 Kino.listen(start_button, fn _event ->
   SigmaGraph.clear(graph)
   num_nodes = Kino.Input.read(nodes_input)
   num_messages = Kino.Input.read(messages_input)
   use_random = Kino.Input.read(random_sender_input)
+  delay_ms = Kino.Input.read(swarming_delay_input)
 
   {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
 
   # Node setup
-  GenServer.call(observer_pid, {:setup_nodes, num_nodes})
-  Process.sleep(1000)
-
+  # GenServer.call(observer_pid, {:setup_nodes, num_nodes, logger_pid})
+  GenServer.call(observer_pid, {:setup_nodes, num_nodes, nil})
   # Connect nodes
   GenServer.call(observer_pid, {:connect_nodes})
-  Process.sleep(5000)
+  Process.sleep(delay_ms)
 
   # Send messages
   GenServer.call(observer_pid, {:send_messages, num_messages, use_random})
 
-  # Final graph update
-  # GenServer.call(observer_pid, :draw_missing)
+  # Final graph update visualizing pending deliveries
+  GenServer.call(observer_pid, :draw_missing)
 end)
 
 grid
