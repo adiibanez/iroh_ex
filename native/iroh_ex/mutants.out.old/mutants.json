@@ -1,0 +1,2252 @@
+[
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::new()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async_internal",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 232,
+          "column": 1
+        },
+        "end": {
+          "line": 278,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 233,
+        "column": 5
+      },
+      "end": {
+        "line": 277,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 224,
+          "column": 1
+        },
+        "end": {
+          "line": 230,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 227,
+        "column": 5
+      },
+      "end": {
+        "line": 229,
+        "column": 7
+      }
+    },
+    "replacement": "Ok(ResourceArc::from_iter([Default::default()]))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "generate_topic_name",
+      "return_type": "-> String",
+      "span": {
+        "start": {
+          "line": 78,
+          "column": 1
+        },
+        "end": {
+          "line": 83,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 79,
+        "column": 5
+      },
+      "end": {
+        "line": 82,
+        "column": 19
+      }
+    },
+    "replacement": "\"xyzzy\".into()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::from(vec![String::new()])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "connect_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 409,
+          "column": 1
+        },
+        "end": {
+          "line": 425,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 415,
+        "column": 5
+      },
+      "end": {
+        "line": 424,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::new(vec![String::new()])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "connect_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 409,
+          "column": 1
+        },
+        "end": {
+          "line": 425,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 415,
+        "column": 5
+      },
+      "end": {
+        "line": 424,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Message::to_vec",
+      "return_type": "-> Vec<u8>",
+      "span": {
+        "start": {
+          "line": 102,
+          "column": 5
+        },
+        "end": {
+          "line": 104,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 103,
+        "column": 9
+      },
+      "end": {
+        "line": 103,
+        "column": 76
+      }
+    },
+    "replacement": "vec![]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl Display for Ticket>::fmt",
+      "return_type": "-> fmt::Result",
+      "span": {
+        "start": {
+          "line": 844,
+          "column": 5
+        },
+        "end": {
+          "line": 848,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 845,
+        "column": 9
+      },
+      "end": {
+        "line": 847,
+        "column": 30
+      }
+    },
+    "replacement": "Ok(Default::default())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "gen_node_addr",
+      "return_type": "-> NifResult<String>",
+      "span": {
+        "start": {
+          "line": 365,
+          "column": 1
+        },
+        "end": {
+          "line": 376,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 367,
+        "column": 5
+      },
+      "end": {
+        "line": 375,
+        "column": 28
+      }
+    },
+    "replacement": "NifResult::from_iter([String::new()])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "connect_node_async_internal",
+      "return_type": "-> Result<(), RustlerError>",
+      "span": {
+        "start": {
+          "line": 447,
+          "column": 1
+        },
+        "end": {
+          "line": 763,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 451,
+        "column": 5
+      },
+      "end": {
+        "line": 762,
+        "column": 11
+      }
+    },
+    "replacement": "Ok(())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Ticket::from_bytes",
+      "return_type": "-> Result<Self>",
+      "span": {
+        "start": {
+          "line": 830,
+          "column": 5
+        },
+        "end": {
+          "line": 833,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 832,
+        "column": 9
+      },
+      "end": {
+        "line": 832,
+        "column": 58
+      }
+    },
+    "replacement": "Ok(Default::default())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 224,
+          "column": 1
+        },
+        "end": {
+          "line": 230,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 227,
+        "column": 5
+      },
+      "end": {
+        "line": 229,
+        "column": 7
+      }
+    },
+    "replacement": "Ok(ResourceArc::new(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_ticket",
+      "return_type": "-> Result<String, RustlerError>",
+      "span": {
+        "start": {
+          "line": 338,
+          "column": 1
+        },
+        "end": {
+          "line": 363,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 340,
+        "column": 5
+      },
+      "end": {
+        "line": 362,
+        "column": 27
+      }
+    },
+    "replacement": "Ok(String::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 280,
+          "column": 1
+        },
+        "end": {
+          "line": 336,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 282,
+        "column": 5
+      },
+      "end": {
+        "line": 335,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl ProtocolHandler for Echo>::accept",
+      "return_type": "-> BoxFuture<Result<()>>",
+      "span": {
+        "start": {
+          "line": 770,
+          "column": 5
+        },
+        "end": {
+          "line": 782,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 771,
+        "column": 9
+      },
+      "end": {
+        "line": 781,
+        "column": 11
+      }
+    },
+    "replacement": "BoxFuture::new(Ok(()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "generate_topic_name",
+      "return_type": "-> String",
+      "span": {
+        "start": {
+          "line": 78,
+          "column": 1
+        },
+        "end": {
+          "line": 83,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 79,
+        "column": 5
+      },
+      "end": {
+        "line": 82,
+        "column": 19
+      }
+    },
+    "replacement": "String::new()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 224,
+          "column": 1
+        },
+        "end": {
+          "line": 230,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 227,
+        "column": 5
+      },
+      "end": {
+        "line": 229,
+        "column": 7
+      }
+    },
+    "replacement": "Ok(ResourceArc::from(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl Drop for EndpointWrapper>::drop",
+      "return_type": "",
+      "span": {
+        "start": {
+          "line": 181,
+          "column": 5
+        },
+        "end": {
+          "line": 186,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 182,
+        "column": 9
+      },
+      "end": {
+        "line": 185,
+        "column": 11
+      }
+    },
+    "replacement": "()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "connect_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 409,
+          "column": 1
+        },
+        "end": {
+          "line": 425,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 415,
+        "column": 5
+      },
+      "end": {
+        "line": 424,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "gen_node_addr",
+      "return_type": "-> NifResult<String>",
+      "span": {
+        "start": {
+          "line": 365,
+          "column": 1
+        },
+        "end": {
+          "line": 376,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 367,
+        "column": 5
+      },
+      "end": {
+        "line": 375,
+        "column": 28
+      }
+    },
+    "replacement": "NifResult::from(String::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "gen_node_addr",
+      "return_type": "-> NifResult<String>",
+      "span": {
+        "start": {
+          "line": 365,
+          "column": 1
+        },
+        "end": {
+          "line": 376,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 367,
+        "column": 5
+      },
+      "end": {
+        "line": 375,
+        "column": 28
+      }
+    },
+    "replacement": "NifResult::from(\"xyzzy\".into())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Message::from_bytes",
+      "return_type": "-> Result<Self>",
+      "span": {
+        "start": {
+          "line": 98,
+          "column": 5
+        },
+        "end": {
+          "line": 100,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 99,
+        "column": 9
+      },
+      "end": {
+        "line": 99,
+        "column": 58
+      }
+    },
+    "replacement": "Ok(Default::default())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::from_iter([vec![String::new()]])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Ticket::to_bytes",
+      "return_type": "-> Vec<u8>",
+      "span": {
+        "start": {
+          "line": 835,
+          "column": 5
+        },
+        "end": {
+          "line": 838,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 837,
+        "column": 9
+      },
+      "end": {
+        "line": 837,
+        "column": 76
+      }
+    },
+    "replacement": "vec![0]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::from_iter([vec![\"xyzzy\".into()]])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 280,
+          "column": 1
+        },
+        "end": {
+          "line": 336,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 282,
+        "column": 5
+      },
+      "end": {
+        "line": 335,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from_iter([Default::default()]))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async_internal",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 232,
+          "column": 1
+        },
+        "end": {
+          "line": 278,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 233,
+        "column": 5
+      },
+      "end": {
+        "line": 277,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from_iter([Default::default()]))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "send_message",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 378,
+          "column": 1
+        },
+        "end": {
+          "line": 407,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 386,
+        "column": 5
+      },
+      "end": {
+        "line": 406,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from_iter([Default::default()]))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "string_to_32_byte_array",
+      "return_type": "-> [u8; 32]",
+      "span": {
+        "start": {
+          "line": 208,
+          "column": 1
+        },
+        "end": {
+          "line": 214,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 209,
+        "column": 5
+      },
+      "end": {
+        "line": 213,
+        "column": 11
+      }
+    },
+    "replacement": "[1; 32]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "add",
+      "return_type": "-> i64",
+      "span": {
+        "start": {
+          "line": 107,
+          "column": 1
+        },
+        "end": {
+          "line": 110,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 109,
+        "column": 5
+      },
+      "end": {
+        "line": 109,
+        "column": 10
+      }
+    },
+    "replacement": "0",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 280,
+          "column": 1
+        },
+        "end": {
+          "line": 336,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 282,
+        "column": 5
+      },
+      "end": {
+        "line": 335,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "add",
+      "return_type": "-> i64",
+      "span": {
+        "start": {
+          "line": 107,
+          "column": 1
+        },
+        "end": {
+          "line": 110,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 109,
+        "column": 5
+      },
+      "end": {
+        "line": 109,
+        "column": 10
+      }
+    },
+    "replacement": "1",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "disconnect_node",
+      "return_type": "-> NifResult<()>",
+      "span": {
+        "start": {
+          "line": 427,
+          "column": 1
+        },
+        "end": {
+          "line": 432,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 431,
+        "column": 5
+      },
+      "end": {
+        "line": 431,
+        "column": 11
+      }
+    },
+    "replacement": "NifResult::from_iter([()])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::from_iter([vec![]])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::new(vec![\"xyzzy\".into()])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "gen_node_addr",
+      "return_type": "-> NifResult<String>",
+      "span": {
+        "start": {
+          "line": 365,
+          "column": 1
+        },
+        "end": {
+          "line": 376,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 367,
+        "column": 5
+      },
+      "end": {
+        "line": 375,
+        "column": 28
+      }
+    },
+    "replacement": "NifResult::new(\"xyzzy\".into())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "disconnect_node",
+      "return_type": "-> NifResult<()>",
+      "span": {
+        "start": {
+          "line": 427,
+          "column": 1
+        },
+        "end": {
+          "line": 432,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 431,
+        "column": 5
+      },
+      "end": {
+        "line": 431,
+        "column": 11
+      }
+    },
+    "replacement": "NifResult::from(())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "disconnect_node",
+      "return_type": "-> NifResult<()>",
+      "span": {
+        "start": {
+          "line": 427,
+          "column": 1
+        },
+        "end": {
+          "line": 432,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 431,
+        "column": 5
+      },
+      "end": {
+        "line": 431,
+        "column": 11
+      }
+    },
+    "replacement": "NifResult::new()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "generate_secretkey",
+      "return_type": "-> Result<String, RustlerError>",
+      "span": {
+        "start": {
+          "line": 216,
+          "column": 1
+        },
+        "end": {
+          "line": 222,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 218,
+        "column": 5
+      },
+      "end": {
+        "line": 221,
+        "column": 31
+      }
+    },
+    "replacement": "Ok(String::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::new(vec![])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "gen_node_addr",
+      "return_type": "-> NifResult<String>",
+      "span": {
+        "start": {
+          "line": 365,
+          "column": 1
+        },
+        "end": {
+          "line": 376,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 367,
+        "column": 5
+      },
+      "end": {
+        "line": 375,
+        "column": 28
+      }
+    },
+    "replacement": "NifResult::new(String::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Message::to_vec",
+      "return_type": "-> Vec<u8>",
+      "span": {
+        "start": {
+          "line": 102,
+          "column": 5
+        },
+        "end": {
+          "line": 104,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 103,
+        "column": 9
+      },
+      "end": {
+        "line": 103,
+        "column": 76
+      }
+    },
+    "replacement": "vec![0]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "add",
+      "return_type": "-> i64",
+      "span": {
+        "start": {
+          "line": 107,
+          "column": 1
+        },
+        "end": {
+          "line": 110,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 109,
+        "column": 7
+      },
+      "end": {
+        "line": 109,
+        "column": 8
+      }
+    },
+    "replacement": "*",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async_internal",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 232,
+          "column": 1
+        },
+        "end": {
+          "line": 278,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 233,
+        "column": 5
+      },
+      "end": {
+        "line": 277,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Ticket::to_bytes",
+      "return_type": "-> Vec<u8>",
+      "span": {
+        "start": {
+          "line": 835,
+          "column": 5
+        },
+        "end": {
+          "line": 838,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 837,
+        "column": 9
+      },
+      "end": {
+        "line": 837,
+        "column": 76
+      }
+    },
+    "replacement": "vec![]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "connect_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 409,
+          "column": 1
+        },
+        "end": {
+          "line": 425,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 415,
+        "column": 5
+      },
+      "end": {
+        "line": 424,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from_iter([Default::default()]))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl ProtocolHandler for Echo>::accept",
+      "return_type": "-> BoxFuture<Result<()>>",
+      "span": {
+        "start": {
+          "line": 770,
+          "column": 5
+        },
+        "end": {
+          "line": 782,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 771,
+        "column": 9
+      },
+      "end": {
+        "line": 781,
+        "column": 11
+      }
+    },
+    "replacement": "BoxFuture::new()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl ProtocolHandler for Echo>::accept",
+      "return_type": "-> BoxFuture<Result<()>>",
+      "span": {
+        "start": {
+          "line": 770,
+          "column": 5
+        },
+        "end": {
+          "line": 782,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 771,
+        "column": 9
+      },
+      "end": {
+        "line": 781,
+        "column": 11
+      }
+    },
+    "replacement": "BoxFuture::from_iter([Ok(())])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::from(vec![])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "on_load",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 863,
+          "column": 1
+        },
+        "end": {
+          "line": 880,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 864,
+        "column": 5
+      },
+      "end": {
+        "line": 879,
+        "column": 9
+      }
+    },
+    "replacement": "true",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "on_load",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 863,
+          "column": 1
+        },
+        "end": {
+          "line": 880,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 864,
+        "column": 5
+      },
+      "end": {
+        "line": 879,
+        "column": 9
+      }
+    },
+    "replacement": "false",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Ticket::to_bytes",
+      "return_type": "-> Vec<u8>",
+      "span": {
+        "start": {
+          "line": 835,
+          "column": 5
+        },
+        "end": {
+          "line": 838,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 837,
+        "column": 9
+      },
+      "end": {
+        "line": 837,
+        "column": 76
+      }
+    },
+    "replacement": "vec![1]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "gen_node_addr",
+      "return_type": "-> NifResult<String>",
+      "span": {
+        "start": {
+          "line": 365,
+          "column": 1
+        },
+        "end": {
+          "line": 376,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 367,
+        "column": 5
+      },
+      "end": {
+        "line": 375,
+        "column": 28
+      }
+    },
+    "replacement": "NifResult::from_iter([\"xyzzy\".into()])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_ticket",
+      "return_type": "-> Result<String, RustlerError>",
+      "span": {
+        "start": {
+          "line": 338,
+          "column": 1
+        },
+        "end": {
+          "line": 363,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 340,
+        "column": 5
+      },
+      "end": {
+        "line": 362,
+        "column": 27
+      }
+    },
+    "replacement": "Ok(\"xyzzy\".into())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "Message::to_vec",
+      "return_type": "-> Vec<u8>",
+      "span": {
+        "start": {
+          "line": 102,
+          "column": 5
+        },
+        "end": {
+          "line": 104,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 103,
+        "column": 9
+      },
+      "end": {
+        "line": 103,
+        "column": 76
+      }
+    },
+    "replacement": "vec![1]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "send_message",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 378,
+          "column": 1
+        },
+        "end": {
+          "line": 407,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 386,
+        "column": 5
+      },
+      "end": {
+        "line": 406,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "generate_secretkey",
+      "return_type": "-> Result<String, RustlerError>",
+      "span": {
+        "start": {
+          "line": 216,
+          "column": 1
+        },
+        "end": {
+          "line": 222,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 218,
+        "column": 5
+      },
+      "end": {
+        "line": 221,
+        "column": 31
+      }
+    },
+    "replacement": "Ok(\"xyzzy\".into())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl Drop for NodeState>::drop",
+      "return_type": "",
+      "span": {
+        "start": {
+          "line": 141,
+          "column": 5
+        },
+        "end": {
+          "line": 154,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 142,
+        "column": 9
+      },
+      "end": {
+        "line": 146,
+        "column": 57
+      }
+    },
+    "replacement": "()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "log_discovery_stream",
+      "return_type": "",
+      "span": {
+        "start": {
+          "line": 785,
+          "column": 1
+        },
+        "end": {
+          "line": 821,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 786,
+        "column": 5
+      },
+      "end": {
+        "line": 820,
+        "column": 6
+      }
+    },
+    "replacement": "()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "add",
+      "return_type": "-> i64",
+      "span": {
+        "start": {
+          "line": 107,
+          "column": 1
+        },
+        "end": {
+          "line": 110,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 109,
+        "column": 7
+      },
+      "end": {
+        "line": 109,
+        "column": 8
+      }
+    },
+    "replacement": "-",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 224,
+          "column": 1
+        },
+        "end": {
+          "line": 230,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 227,
+        "column": 5
+      },
+      "end": {
+        "line": 229,
+        "column": 7
+      }
+    },
+    "replacement": "Ok(ResourceArc::new())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "gen_node_addr",
+      "return_type": "-> NifResult<String>",
+      "span": {
+        "start": {
+          "line": 365,
+          "column": 1
+        },
+        "end": {
+          "line": 376,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 367,
+        "column": 5
+      },
+      "end": {
+        "line": 375,
+        "column": 28
+      }
+    },
+    "replacement": "NifResult::new()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "send_message",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 378,
+          "column": 1
+        },
+        "end": {
+          "line": 407,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 386,
+        "column": 5
+      },
+      "end": {
+        "line": 406,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl ProtocolHandler for Echo>::accept",
+      "return_type": "-> BoxFuture<Result<()>>",
+      "span": {
+        "start": {
+          "line": 770,
+          "column": 5
+        },
+        "end": {
+          "line": 782,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 771,
+        "column": 9
+      },
+      "end": {
+        "line": 781,
+        "column": 11
+      }
+    },
+    "replacement": "BoxFuture::from(Ok(()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "string_to_32_byte_array",
+      "return_type": "-> [u8; 32]",
+      "span": {
+        "start": {
+          "line": 208,
+          "column": 1
+        },
+        "end": {
+          "line": 214,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 209,
+        "column": 5
+      },
+      "end": {
+        "line": 213,
+        "column": 11
+      }
+    },
+    "replacement": "[0; 32]",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "list_peers",
+      "return_type": "-> NifResult<Vec<String>>",
+      "span": {
+        "start": {
+          "line": 434,
+          "column": 1
+        },
+        "end": {
+          "line": 445,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 436,
+        "column": 5
+      },
+      "end": {
+        "line": 444,
+        "column": 14
+      }
+    },
+    "replacement": "NifResult::from(vec![\"xyzzy\".into()])",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 280,
+          "column": 1
+        },
+        "end": {
+          "line": 336,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 282,
+        "column": 5
+      },
+      "end": {
+        "line": 335,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "create_node_async_internal",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 232,
+          "column": 1
+        },
+        "end": {
+          "line": 278,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 233,
+        "column": 5
+      },
+      "end": {
+        "line": 277,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::from(Default::default()))",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "disconnect_node",
+      "return_type": "-> NifResult<()>",
+      "span": {
+        "start": {
+          "line": 427,
+          "column": 1
+        },
+        "end": {
+          "line": 432,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 431,
+        "column": 5
+      },
+      "end": {
+        "line": 431,
+        "column": 11
+      }
+    },
+    "replacement": "NifResult::new(())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl FromStr for Ticket>::from_str",
+      "return_type": "-> Result<Self, Self::Err>",
+      "span": {
+        "start": {
+          "line": 855,
+          "column": 5
+        },
+        "end": {
+          "line": 858,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 856,
+        "column": 9
+      },
+      "end": {
+        "line": 857,
+        "column": 33
+      }
+    },
+    "replacement": "Ok(Default::default())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "add",
+      "return_type": "-> i64",
+      "span": {
+        "start": {
+          "line": 107,
+          "column": 1
+        },
+        "end": {
+          "line": 110,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 109,
+        "column": 5
+      },
+      "end": {
+        "line": 109,
+        "column": 10
+      }
+    },
+    "replacement": "-1",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "<impl Drop for GossipWrapper>::drop",
+      "return_type": "",
+      "span": {
+        "start": {
+          "line": 162,
+          "column": 5
+        },
+        "end": {
+          "line": 173,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 163,
+        "column": 9
+      },
+      "end": {
+        "line": 172,
+        "column": 11
+      }
+    },
+    "replacement": "()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "iroh_ex",
+    "file": "src/lib.rs",
+    "function": {
+      "function_name": "send_message",
+      "return_type": "-> Result<ResourceArc<NodeRef>, RustlerError>",
+      "span": {
+        "start": {
+          "line": 378,
+          "column": 1
+        },
+        "end": {
+          "line": 407,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 386,
+        "column": 5
+      },
+      "end": {
+        "line": 406,
+        "column": 17
+      }
+    },
+    "replacement": "Ok(ResourceArc::new())",
+    "genre": "FnValue"
+  }
+]

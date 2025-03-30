@@ -1,6 +1,6 @@
 <!-- livebook:{"app_settings":{"access_type":"public","show_source":true,"slug":"iroh-observer"}} -->
 
-# Kino Sigma js
+# Graph Observer
 
 ```elixir
 Mix.install([
@@ -12,565 +12,6 @@ Mix.install([
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
-```
-
-## Process Observer
-
-```elixir
-defmodule ProcessMonitor do
-  use GenServer
-
-  # Starts the GenServer and initiates tracing
-  def start_link(graph) do
-    case Process.whereis(__MODULE__) do
-      nil ->
-        IO.puts("#{__MODULE__} No Process running")
-        SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-
-      pid when is_pid(pid) ->
-        IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
-        Process.exit(pid, :kill)
-        SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
-        # Wait a moment to ensure the process exits
-        Process.sleep(100)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-    end
-  end
-
-  @impl true
-  def init(graph) do
-    # Set up tracing for all processes
-    IO.inspect(graph, label: "Init ProcessMonitor")
-    :erlang.trace(:all, true, [:procs])
-    {:ok, %{graph: graph}}
-  end
-
-  defp format_pid(pid) do
-    formatted = inspect(pid)
-    # |> String.replace("#", "") # Original commented out lines
-    # |> String.replace("<", "")
-    # |> String.replace(">", "")
-    # |> String.replace(".", "")
-
-    formatted
-
-    # IO.inspect(formatted, label: "formatted pid") # Original commented out line
-  end
-
-  @impl true
-  def handle_info({:trace, pid, :spawn, new_pid, mfa}, %{graph: graph} = state) do
-    # IO.inspect(graph, label: "Graph debug") # Original commented out line
-    IO.puts("Process #{inspect(new_pid)} spawned by #{inspect(pid)}: #{inspect(mfa)}")
-
-    SigmaGraph.add_node(graph, %{
-      id: "#{format_pid(pid)}",
-      label: "Process #{format_pid(pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
-    })
-
-    SigmaGraph.add_node(graph, %{
-      id: "#{format_pid(new_pid)}",
-      label: "Process #{format_pid(new_pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
-    })
-
-    # SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)}) # Original commented out line
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info({:trace, pid, :exit, reason}, %{graph: graph} = state) do
-    IO.puts("Process #{inspect(pid)} exited with reason: #{inspect(reason)}")
-    SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info({:trace, pid, :link, linked_pid}, %{graph: graph} = state) do
-    IO.puts("Process #{inspect(pid)} linked to #{inspect(linked_pid)}")
-    SigmaGraph.add_node(graph, %{id: "#{format_pid(pid)}", label: "Process #{format_pid(pid)}"})
-
-    SigmaGraph.add_node(graph, %{
-      id: "#{format_pid(linked_pid)}",
-      label: "Process #{format_pid(linked_pid)}"
-    })
-
-    SigmaGraph.add_edge(graph, %{
-      source: "#{format_pid(pid)}",
-      target: "#{format_pid(linked_pid)}"
-    })
-
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info({:trace, pid, :unlink, unlinked_pid}, %{graph: graph} = state) do
-    IO.puts("Process #{inspect(pid)} unlinked from #{inspect(unlinked_pid)}")
-
-    SigmaGraph.remove_edge(graph, %{
-      source: "#{format_pid(pid)}",
-      target: "#{format_pid(unlinked_pid)}"
-    })
-
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info(_msg, state) do
-    {:noreply, state}
-  end
-end
-
-defmodule TraceParser do
-  def extract_mfa({mod, fun, args}) when is_atom(mod) and is_atom(fun) and is_list(args) do
-    "#{mod}.#{fun}/#{length(args)}"
-  end
-
-  def extract_mfa({:erlang, :apply, [func, _]}) when is_function(func, 0) do
-    func_info = inspect(func)
-
-    case String.split(func_info, " in ") do
-      [_, mfa] -> mfa
-      _ -> "UnknownFunction"
-    end
-  end
-
-  def extract_mfa(_), do: "UnknownFunction"
-end
-
-defmodule Worker do
-  use GenServer
-
-  def start_link(_) do
-    # Unique name
-    GenServer.start_link(__MODULE__, %{}, name: :erlang.make_ref())
-  end
-
-  def init(_) do
-    # Live for 2-5 seconds
-    lifespan = :rand.uniform(3000) + 2000
-    Process.send_after(self(), :die, lifespan)
-    {:ok, %{}}
-  end
-
-  def handle_info(:die, _state) do
-    IO.puts("Worker #{inspect(self())} exiting")
-    exit(:normal)
-  end
-end
-
-defmodule WorkerSupervisor do
-  use Supervisor
-
-  def start_link(_) do
-    Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
-  end
-
-  def init(:ok) do
-    children = [
-      # Defines a Worker child spec
-      {Worker, []}
-    ]
-
-    Supervisor.init(children, strategy: :simple_one_for_one)
-  end
-end
-
-defmodule WorkerManager do
-  use GenServer
-
-  def start_link(_) do
-    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-  end
-
-  def init(:ok) do
-    # Start workers after a delay
-    Process.send_after(self(), :start_workers, :rand.uniform(5000))
-    {:ok, %{}}
-  end
-
-  def handle_info(:start_workers, state) do
-    # 1 to 10 workers
-    num_workers = :rand.uniform(10)
-
-    for _ <- 1..num_workers do
-      Supervisor.start_child(WorkerSupervisor, [])
-    end
-
-    IO.puts("Spawned #{num_workers} workers")
-
-    # Schedule the next batch
-    Process.send_after(self(), :start_workers, :rand.uniform(5000))
-
-    {:noreply, state}
-  end
-end
-
-defmodule SupervisorExample do
-  def start_link do
-    # Start the Worker Supervisor
-    {:ok, _} = WorkerSupervisor.start_link([])
-
-    # Start the Worker Manager
-    {:ok, _} = WorkerManager.start_link([])
-  end
-end
-```
-
-## Iroh Observer
-
-```elixir
-defmodule IrohObserver do
-  use GenServer
-  alias IrohEx.Native
-
-  @node_cnt 10
-  # 10_000
-  @msg_cnt 10
-  @rand_msg_delay 1000
-
-  @msg_timeout 30_000
-
-  # Starts the GenServer and initiates tracing
-  def start_link(graph) do
-    case Process.whereis(__MODULE__) do
-      nil ->
-        # IO.puts("#{__MODULE__} No Process running")
-        # SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-
-      # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-
-      pid when is_pid(pid) ->
-        # IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
-        Process.exit(pid, :kill)
-        # SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
-        # Wait a moment to ensure the process exits
-        Process.sleep(100)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-        # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-    end
-  end
-
-  @impl true
-  def init({graph, datatable}) do
-    {:ok, %{graph: graph, datatable: datatable}}
-  end
-
-  @impl true
-  def handle_call(
-        {:setup_nodes, node_cnt},
-        _from,
-        %{graph: graph} = state
-      ) do
-    pid = self()
-
-    mothership_node_ref = Native.create_node(pid)
-    ticket = Native.create_ticket(mothership_node_ref)
-
-    IO.inspect(ticket, label: "Node1 ticket")
-
-    # connect main node
-    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
-    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
-
-    nodes = create_nodes(node_cnt, pid)
-    # IO.inspect(nodes, label: "Node list")
-
-    # draw nodes
-
-    Enum.each(nodes, fn node ->
-      node_addr = Native.gen_node_addr(node)
-
-      SigmaGraph.add_node(
-        graph,
-        %{id: "#{node_addr}", layout: "ring", label: "#{node_addr}:Started"},
-        true
-      )
-    end)
-
-    {:reply, nodes,
-     state
-     |> Map.put(:ticket, ticket)
-     |> Map.put(:mothership_node, mothership_node_ref)
-     |> Map.put(:nodes, nodes)}
-  end
-
-  @impl true
-  def handle_call(
-        {:connect_nodes},
-        _from,
-        %{graph: graph, ticket: ticket, mothership_node: mothership_node, nodes: nodes} = state
-      ) do
-    tasks =
-      Enum.map(nodes, fn n ->
-        # IO.inspect(n, label: "Connect Node ref")
-        node_addr = Native.gen_node_addr(n)
-
-        Task.async(fn ->
-          Native.connect_node(n, ticket)
-
-          SigmaGraph.add_node(
-            graph,
-            %{id: "#{node_addr}", layout: "ring", label: "#{node_addr}:Connected"},
-            true
-          )
-        end)
-      end)
-
-    Enum.each(tasks, &Task.await/1)
-    {:reply, [], state}
-  end
-
-  @impl true
-  def handle_call(
-        {:send_messages, msg_cnt, use_random_node},
-        _from,
-        %{graph: graph, ticket: ticket, mothership_node: mothership_node, nodes: nodes} = state
-      ) do
-    no_random_node = Enum.random(nodes)
-
-    msg_sender_receipts =
-      1..msg_cnt
-      |> Enum.map(fn x ->
-        Task.async(fn ->
-          node =
-            if use_random_node do
-              Enum.random(nodes)
-            else
-              no_random_node
-            end
-
-          node_id = Native.gen_node_addr(node)
-
-          rand_msg_delay = :rand.uniform(@rand_msg_delay)
-          Process.sleep(rand_msg_delay)
-
-          msg = "MSG:#{x}"
-          timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
-
-          SigmaGraph.add_node(
-            graph,
-            %{id: msg, layout: "grid", label: msg, color: "orange"},
-            true
-          )
-
-          receipt = %{
-            sender: node_id,
-            timestamp: timestamp,
-            receipts: []
-          }
-
-          {msg, receipt}
-        end)
-      end)
-      |> Enum.map(&Task.await/1)
-      |> Map.new()
-
-    msg_receipts =
-      msg_sender_receipts
-      |> Map.new(fn {msg, _receipt} -> {msg, []} end)
-
-    IO.puts("#{inspect(msg_receipts)} Final Receipts")
-    IO.puts("#{inspect(msg_sender_receipts)} Final Sender Receipts")
-
-    {:reply, msg_receipts,
-     state
-     |> Map.put(:msg_sender_receipts, msg_sender_receipts)
-     |> Map.put(:msg_receipts, msg_receipts)}
-  end
-
-  @impl true
-  def handle_call(
-        :draw_missing,
-        _from,
-        %{graph: graph, nodes: nodes, msg_receipts: msg_receipts, datatable: datatable} = state
-      ) do
-    node_ids =
-      Enum.map(nodes, fn node_ref ->
-        Native.gen_node_addr(node_ref)
-      end)
-
-    IO.inspect(node_ids, label: "node ids")
-    IO.inspect(msg_receipts, label: "receipts")
-
-    data = []
-    msg_receipts = []
-
-    Enum.each(msg_receipts, fn {msg, receipts} ->
-      # Find missing node IDs
-
-      IO.inspect(receipts, label: "Receipts")
-      missing_nodes = node_ids -- receipts
-
-      IO.inspect(missing_nodes, label: "Missing nodes")
-      # Enum.map(receipts || [], & &1.sender)
-
-      case missing_nodes do
-        [] ->
-          IO.puts("All nodes received #{msg}")
-          SigmaGraph.add_node(graph, %{id: msg, layout: "grid", label: msg, color: "green"}, true)
-
-        _ ->
-          SigmaGraph.add_node(
-            graph,
-            %{
-              id: msg,
-              layout: "grid",
-              label: "Missing nodes: #{Enum.join(missing_nodes, ",")}",
-              color: "red"
-            },
-            true
-          )
-
-          IO.puts("Missing nodes #{Enum.join(missing_nodes, ",")} for #{msg}")
-
-          data = data ++ [%{msg: msg, missing: Enum.join(missing_nodes, ",")}]
-
-          Enum.each(missing_nodes, fn missing_node ->
-            # IO.puts("Missing node #{missing_node} for #{msg}")
-            SigmaGraph.add_edge(graph, %{source: msg, target: missing_node, color: "red"})
-          end)
-      end
-    end)
-
-    # Kino.DataTable.update(datatable, data)
-
-    {:reply, [], state}
-  end
-
-  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{graph: graph} = state) do
-    # IO.puts("iroh_gossip_neighbor_up #{source} #{target}")
-    SigmaGraph.add_edge(graph, %{source: source, target: target})
-    {:noreply, state}
-  end
-
-  def handle_info({:iroh_gossip_neighbor_down, source, target}, %{graph: graph} = state) do
-    # IO.puts("iroh_gossip_neighbor_down #{source} #{target}")
-    SigmaGraph.remove_edge(graph, %{source: source, target: target})
-    {:noreply, state}
-  end
-
-  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: _graph} = state) do
-    # SigmaGraph.add_edge(graph, %{source: source, target: target})
-    # IO.puts("iroh_gossip_node_discovered #{source} #{target}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(msg, state) do
-    IO.inspect(msg, label: "#{__MODULE__} handle_info catchall")
-    {:noreply, state}
-  end
-
-  def create_nodes(node_count, pid) when is_integer(node_count) and node_count > 0 do
-    1..node_count
-    |> Enum.map(fn _ ->
-      Task.async(fn ->
-        Native.create_node_async(pid)
-      end)
-    end)
-    # Await results
-    |> Enum.map(&Task.await/1)
-    |> Enum.reduce([], fn node_ref, acc ->
-      case node_ref do
-        # Collect valid references
-        ref when is_reference(ref) ->
-          [ref | acc]
-
-        error ->
-          IO.puts("Error creating node: #{inspect(error)}")
-          # Skip errors
-          acc
-      end
-    end)
-    # |> dbg()
-    # Maintain original order
-    |> Enum.reverse()
-  end
-end
-
-defmodule IrohGossipParser do
-  def parse_gossip_messages(messages) do
-    Enum.reduce(messages, %{nodes: %{}}, fn
-      {:iroh_gossip_node_discovered, source, discovered}, acc ->
-        update_in(acc, [:nodes, source], fn
-          nil -> %{peers: [discovered], messages: [], msg_count: 0}
-          node -> %{node | peers: [discovered | node.peers || []]}
-        end)
-
-      {:iroh_gossip_message_received, source, msg}, acc ->
-        update_in(acc, [:nodes, source], fn
-          nil ->
-            %{peers: [], messages: [msg], msg_count: 1}
-
-          node ->
-            %{node | messages: [msg | node.messages || []], msg_count: (node.msg_count || 0) + 1}
-        end)
-
-      _other, acc ->
-        acc
-    end)
-  end
-
-  def parse_gossip_messages_(messages) do
-    Enum.reduce(messages, %{nodes: %{}}, fn
-      {:iroh_gossip_node_discovered, source, discovered}, acc ->
-        update_in(acc, [:nodes, source], fn node ->
-          case node do
-            # Initialize node with peers
-            nil ->
-              %{peers: [discovered]}
-
-            node ->
-              update_in(node, [:peers], fn
-                nil -> [discovered]
-                peers -> [discovered | peers]
-              end)
-          end
-        end)
-
-      {:iroh_gossip_message_received, source, msg}, acc ->
-        update_in(acc, [:nodes, source], fn node ->
-          case node do
-            # Initialize node with messages
-            nil ->
-              %{messages: [msg]}
-
-            node ->
-              update_in(node, [:messages], fn
-                nil -> [msg]
-                msgs -> [msg | msgs]
-              end)
-          end
-        end)
-
-      # Ignore other messages
-      _other, acc ->
-        acc
-    end)
-  end
-
-  def map_put(data, keys, value) do
-    # data = %{} or non empty map
-    # keys = [:a, :b, :c]
-    # value = 3
-    put_in(data, Enum.map(keys, &Access.key(&1, %{})), value)
-  end
-
-  def many_map_puts(data, keys_values) do
-    # data = %{} or non empty map
-    # keys_values = [[keys: [:a, :b, :c], value: 4],[keys: [:z, :y, :x], value: 90]]
-    Enum.reduce(keys_values, data, fn x, data ->
-      map_put(data, x[:keys], x[:value])
-    end)
-  end
-end
 ```
 
 ## Livebook Sigma
@@ -833,7 +274,509 @@ defmodule SigmaGraph do
 end
 ```
 
+## Process Observer
+
+```elixir
+defmodule ProcessMonitor do
+  use GenServer
+
+  # Starts the GenServer and initiates tracing
+  def start_link(graph) do
+    case Process.whereis(__MODULE__) do
+      nil ->
+        IO.puts("#{__MODULE__} No Process running")
+        SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
+
+      pid when is_pid(pid) ->
+        IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
+        Process.exit(pid, :kill)
+        SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
+        # Wait a moment to ensure the process exits
+        Process.sleep(100)
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
+    end
+  end
+
+  @impl true
+  def init(graph) do
+    # Set up tracing for all processes
+    IO.inspect(graph, label: "Init ProcessMonitor")
+    :erlang.trace(:all, true, [:procs])
+    {:ok, %{graph: graph}}
+  end
+
+  defp format_pid(pid) do
+    formatted = inspect(pid)
+    # |> String.replace("#", "") # Original commented out lines
+    # |> String.replace("<", "")
+    # |> String.replace(">", "")
+    # |> String.replace(".", "")
+
+    formatted
+
+    # IO.inspect(formatted, label: "formatted pid") # Original commented out line
+  end
+
+  @impl true
+  def handle_info({:trace, pid, :spawn, new_pid, mfa}, %{graph: graph} = state) do
+    # IO.inspect(graph, label: "Graph debug") # Original commented out line
+    IO.puts("Process #{inspect(new_pid)} spawned by #{inspect(pid)}: #{inspect(mfa)}")
+
+    SigmaGraph.add_node(graph, %{
+      id: "#{format_pid(pid)}",
+      label: "Process #{format_pid(pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
+    })
+
+    SigmaGraph.add_node(graph, %{
+      id: "#{format_pid(new_pid)}",
+      label: "Process #{format_pid(new_pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
+    })
+
+    # SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)}) # Original commented out line
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
+    {:noreply, state}
+  end
+
+  def handle_info({:trace, pid, :exit, reason}, %{graph: graph} = state) do
+    IO.puts("Process #{inspect(pid)} exited with reason: #{inspect(reason)}")
+    SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
+    {:noreply, state}
+  end
+
+  def handle_info({:trace, pid, :link, linked_pid}, %{graph: graph} = state) do
+    IO.puts("Process #{inspect(pid)} linked to #{inspect(linked_pid)}")
+    SigmaGraph.add_node(graph, %{id: "#{format_pid(pid)}", label: "Process #{format_pid(pid)}"})
+
+    SigmaGraph.add_node(graph, %{
+      id: "#{format_pid(linked_pid)}",
+      label: "Process #{format_pid(linked_pid)}"
+    })
+
+    SigmaGraph.add_edge(graph, %{
+      source: "#{format_pid(pid)}",
+      target: "#{format_pid(linked_pid)}"
+    })
+
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
+    {:noreply, state}
+  end
+
+  def handle_info({:trace, pid, :unlink, unlinked_pid}, %{graph: graph} = state) do
+    IO.puts("Process #{inspect(pid)} unlinked from #{inspect(unlinked_pid)}")
+
+    SigmaGraph.remove_edge(graph, %{
+      source: "#{format_pid(pid)}",
+      target: "#{format_pid(unlinked_pid)}"
+    })
+
+    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
+    # Original return value
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, state}
+  end
+end
+
+defmodule TraceParser do
+  def extract_mfa({mod, fun, args}) when is_atom(mod) and is_atom(fun) and is_list(args) do
+    "#{mod}.#{fun}/#{length(args)}"
+  end
+
+  def extract_mfa({:erlang, :apply, [func, _]}) when is_function(func, 0) do
+    func_info = inspect(func)
+
+    case String.split(func_info, " in ") do
+      [_, mfa] -> mfa
+      _ -> "UnknownFunction"
+    end
+  end
+
+  def extract_mfa(_), do: "UnknownFunction"
+end
+
+defmodule Worker do
+  use GenServer
+
+  def start_link(_) do
+    # Unique name
+    GenServer.start_link(__MODULE__, %{}, name: :erlang.make_ref())
+  end
+
+  def init(_) do
+    # Live for 2-5 seconds
+    lifespan = :rand.uniform(3000) + 2000
+    Process.send_after(self(), :die, lifespan)
+    {:ok, %{}}
+  end
+
+  def handle_info(:die, _state) do
+    IO.puts("Worker #{inspect(self())} exiting")
+    exit(:normal)
+  end
+end
+
+defmodule WorkerSupervisor do
+  use Supervisor
+
+  def start_link(_) do
+    Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  def init(:ok) do
+    children = [
+      # Defines a Worker child spec
+      {Worker, []}
+    ]
+
+    Supervisor.init(children, strategy: :simple_one_for_one)
+  end
+end
+
+defmodule WorkerManager do
+  use GenServer
+
+  def start_link(_) do
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  def init(:ok) do
+    # Start workers after a delay
+    Process.send_after(self(), :start_workers, :rand.uniform(5000))
+    {:ok, %{}}
+  end
+
+  def handle_info(:start_workers, state) do
+    # 1 to 10 workers
+    num_workers = :rand.uniform(10)
+
+    for _ <- 1..num_workers do
+      Supervisor.start_child(WorkerSupervisor, [])
+    end
+
+    IO.puts("Spawned #{num_workers} workers")
+
+    # Schedule the next batch
+    Process.send_after(self(), :start_workers, :rand.uniform(5000))
+
+    {:noreply, state}
+  end
+end
+
+defmodule SupervisorExample do
+  def start_link do
+    # Start the Worker Supervisor
+    {:ok, _} = WorkerSupervisor.start_link([])
+
+    # Start the Worker Manager
+    {:ok, _} = WorkerManager.start_link([])
+  end
+end
+```
+
+## Iroh Observer
+
+```elixir
+defmodule IrohObserver do
+  use GenServer
+  alias IrohEx.Native
+
+  @rand_msg_delay 1000
+
+  # Starts the GenServer and initiates tracing
+  def start_link(graph) do
+    case Process.whereis(__MODULE__) do
+      nil ->
+        # IO.puts("#{__MODULE__} No Process running")
+        # SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+
+      # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
+
+      pid when is_pid(pid) ->
+        # IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
+        Process.exit(pid, :kill)
+        # SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
+        # Wait a moment to ensure the process exits
+        Process.sleep(100)
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+        # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
+    end
+  end
+
+  @impl true
+  def init({graph, datatable}) do
+    {:ok, %{graph: graph, datatable: datatable}}
+  end
+
+  @impl true
+  def handle_call(
+        {:setup_nodes, node_cnt},
+        _from,
+        %{graph: graph} = state
+      ) do
+    pid = self()
+
+    mothership_node_ref = Native.create_node(pid)
+    ticket = Native.create_ticket(mothership_node_ref)
+
+    # IO.inspect(ticket, label: "Node1 ticket")
+
+    # connect main node
+    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
+    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
+
+    nodes = create_nodes(node_cnt, pid)
+    # IO.inspect(nodes, label: "Node list")
+
+    # draw nodes
+
+    Enum.each(nodes, fn node ->
+      node_addr = Native.gen_node_addr(node)
+
+      SigmaGraph.add_node(
+        graph,
+        %{id: "#{node_addr}", layout: "ring", color: "grey", label: "#{node_addr}"},
+        true
+      )
+    end)
+
+    {:reply, nodes,
+     state
+     |> Map.put(:ticket, ticket)
+     |> Map.put(:mothership_node, mothership_node_ref)
+     |> Map.put(:nodes, nodes)}
+  end
+
+  @impl true
+  def handle_call(
+        {:connect_nodes},
+        _from,
+        %{graph: graph, ticket: ticket, mothership_node: _mothership_node, nodes: nodes} = state
+      ) do
+    tasks =
+      Enum.map(nodes, fn n ->
+        # IO.inspect(n, label: "Connect Node ref")
+        node_addr = Native.gen_node_addr(n)
+
+        Task.async(fn ->
+          Native.connect_node(n, ticket)
+
+          SigmaGraph.add_node(
+            graph,
+            %{id: "#{node_addr}", layout: "ring", color: "green", label: "#{node_addr}"},
+            true
+          )
+        end)
+      end)
+
+    Enum.each(tasks, &Task.await/1)
+    {:reply, [], state}
+  end
+
+  @impl true
+  def handle_call(
+        {:send_messages, msg_cnt, use_random_node},
+        _from,
+        %{graph: graph, ticket: _ticket, mothership_node: _mothership_node, nodes: nodes} = state
+      ) do
+    no_random_node = Enum.random(nodes)
+
+    msg_sender_receipts =
+      1..msg_cnt
+      |> Enum.map(fn x ->
+        Task.async(fn ->
+          node =
+            if use_random_node do
+              Enum.random(nodes)
+            else
+              no_random_node
+            end
+
+          node_id = Native.gen_node_addr(node)
+
+          rand_msg_delay = :rand.uniform(@rand_msg_delay)
+          Process.sleep(rand_msg_delay)
+
+          msg = "MSG:#{x}"
+          timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+
+          SigmaGraph.add_node(
+            graph,
+            %{id: msg, layout: "grid", label: msg, color: "grey"},
+            true
+          )
+
+          receipt = %{
+            sender: node_id,
+            timestamp: timestamp,
+            receipts: []
+          }
+
+          {msg, receipt}
+        end)
+      end)
+      |> Enum.map(&Task.await/1)
+      |> Map.new()
+
+    msg_receipts =
+      msg_sender_receipts
+      |> Map.new(fn {msg, _receipt} -> {msg, []} end)
+
+    # IO.puts("#{inspect(msg_receipts)} Final Receipts")
+    # IO.puts("#{inspect(msg_sender_receipts)} Final Sender Receipts")
+
+    {:reply, msg_receipts,
+     state
+     |> Map.put(:msg_sender_receipts, msg_sender_receipts)
+     |> Map.put(:msg_receipts, msg_receipts)}
+  end
+
+  @impl true
+  def handle_call(
+        :draw_missing,
+        _from,
+        %{graph: graph, nodes: nodes, msg_receipts: msg_receipts, datatable: _datatable} = state
+      ) do
+    node_ids =
+      Enum.map(nodes, fn node_ref ->
+        Native.gen_node_addr(node_ref)
+      end)
+
+    # IO.inspect(node_ids, label: "node ids")
+    # IO.inspect(msg_receipts, label: "receipts")
+
+    data = []
+    # msg_receipts = []
+
+    Enum.each(msg_receipts, fn {msg, receipts} ->
+      # Find missing node IDs
+
+      IO.inspect(receipts, label: "Receipts")
+      missing_nodes = node_ids -- receipts
+
+      IO.inspect(missing_nodes, label: "Missing nodes")
+      # Enum.map(receipts || [], & &1.sender)
+
+      case missing_nodes do
+        [] ->
+          IO.puts("All nodes received #{msg}")
+          SigmaGraph.add_node(graph, %{id: msg, layout: "grid", label: msg, color: "green"}, true)
+
+        _ ->
+          SigmaGraph.add_node(
+            graph,
+            %{
+              id: msg,
+              layout: "grid",
+              label: "Missing nodes: #{Enum.join(missing_nodes, ",")}",
+              color: "red"
+            },
+            true
+          )
+
+          IO.puts("Missing nodes #{Enum.join(missing_nodes, ",")} for #{msg}")
+
+          _data = data ++ [%{msg: msg, missing: Enum.join(missing_nodes, ",")}]
+
+          Enum.each(missing_nodes, fn missing_node ->
+            # IO.puts("Missing node #{missing_node} for #{msg}")
+            SigmaGraph.add_edge(graph, %{source: msg, target: missing_node, color: "red"})
+          end)
+      end
+    end)
+
+    # Kino.DataTable.update(datatable, data)
+
+    {:reply, [], state}
+  end
+
+  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{graph: graph} = state) do
+    # IO.puts("iroh_gossip_neighbor_up #{source} #{target}")
+    SigmaGraph.add_edge(graph, %{source: source, target: target})
+    {:noreply, state}
+  end
+
+  def handle_info({:iroh_gossip_neighbor_down, source, target}, %{graph: graph} = state) do
+    # IO.puts("iroh_gossip_neighbor_down #{source} #{target}")
+    SigmaGraph.remove_edge(graph, %{source: source, target: target})
+    {:noreply, state}
+  end
+
+  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: _graph} = state) do
+    # SigmaGraph.add_edge(graph, %{source: source, target: target})
+    IO.puts("iroh_gossip_node_discovered #{source} #{target}")
+    {:noreply, state}
+  end
+
+  def handle_info(
+        {:whatver_iroh_gossip_message_received, target, msg},
+        %{graph: _graph} = state
+        # , msg_receipts: msg_receipts
+      ) do
+    # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
+
+    IO.puts("iroh_gossip_message_received #{target} #{msg}")
+
+    # IO.puts("#{inspect(msg_receipts)} Before update")
+
+    # timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+
+    state =
+      update_in(state.msg_receipts, fn msg_receipts ->
+        updated = Map.update(msg_receipts, msg, [target], fn receipts -> receipts ++ [target] end)
+        IO.puts("Updated: #{msg} #{inspect(updated)}")
+        updated
+      end)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    IO.inspect(msg, label: "#{__MODULE__} handle_info catchall")
+    {:noreply, state}
+  end
+
+  def create_nodes(node_count, pid) when is_integer(node_count) and node_count > 0 do
+    1..node_count
+    |> Enum.map(fn _ ->
+      Task.async(fn ->
+        Native.create_node_async(pid)
+      end)
+    end)
+    # Await results
+    |> Enum.map(&Task.await/1)
+    |> Enum.reduce([], fn node_ref, acc ->
+      case node_ref do
+        # Collect valid references
+        ref when is_reference(ref) ->
+          [ref | acc]
+
+        error ->
+          IO.puts("Error creating node: #{inspect(error)}")
+          # Skip errors
+          acc
+      end
+    end)
+    # |> dbg()
+    # Maintain original order
+    |> Enum.reverse()
+  end
+end
+```
+
 ## Run stuff
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 graph = SigmaGraph.new()
@@ -847,19 +790,46 @@ datatable =
 Kino.Layout.grid([graph, datatable], columns: 1)
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
-SigmaGraph.clear(graph)
+# UI Controls
+nodes_input = Kino.Input.number("Number of Nodes", default: 10, min: 3)
+messages_input = Kino.Input.number("Number of Messages", default: 12, min: 1)
+random_sender_input = Kino.Input.checkbox("Use Random Sender", default: true)
+start_button = Kino.Control.button("Start Simulation")
 
-{:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
-GenServer.call(observer_pid, {:setup_nodes, 5})
-Process.sleep(1000)
-GenServer.call(observer_pid, {:connect_nodes})
-Process.sleep(5000)
+# Display Controls
+grid =
+  Kino.Layout.grid([
+    nodes_input,
+    messages_input,
+    random_sender_input,
+    start_button
+  ])
 
-GenServer.call(observer_pid, {:send_messages, 12, true})
-GenServer.call(observer_pid, :draw_missing)
+Kino.listen(start_button, fn _event ->
+  SigmaGraph.clear(graph)
+  num_nodes = Kino.Input.read(nodes_input)
+  num_messages = Kino.Input.read(messages_input)
+  use_random = Kino.Input.read(random_sender_input)
 
-# pid = ProcessMonitor.start_link(graph)
-# Start the system
-# sup_pid = SupervisorExample.start_link()
+  {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
+
+  # Node setup
+  GenServer.call(observer_pid, {:setup_nodes, num_nodes})
+  Process.sleep(1000)
+
+  # Connect nodes
+  GenServer.call(observer_pid, {:connect_nodes})
+  Process.sleep(5000)
+
+  # Send messages
+  GenServer.call(observer_pid, {:send_messages, num_messages, use_random})
+
+  # Final graph update
+  # GenServer.call(observer_pid, :draw_missing)
+end)
+
+grid
 ```

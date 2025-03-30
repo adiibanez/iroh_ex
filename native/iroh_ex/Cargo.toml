@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 # pretty_env_logger = "0.5.0"
 chrono = "0.4.40"
 # rustler = "0.36.1"
-rustler = { git = "https://github.com/filmor/rustler.git", rev = "17740a6dc39c79e47e94dd5e59914d30777a0131"}
+rustler = { git = "https://github.com/filmor/rustler.git", rev = "17740a6dc39c79e47e94dd5e59914d30777a0131",  features = ["nif_version_2_15", "derive"]}
 # , default-features = false, features = ["staticlib", "derive", "nif_version_2_15"]
 iroh = {version = "0.34.0", features = ["discovery-local-network"]}
 
@@ -35,7 +35,7 @@ data-encoding = "2.8.0"
 tokio = { version = "1", features = ["full"] }
 n0-future = "0.1.2"
 anyhow = "1.0.97"
-once_cell = "1.19"
+once_cell = "1.21.3"
 lazy_static = "1.3.0"
 # clap = "4.5.32"
 
