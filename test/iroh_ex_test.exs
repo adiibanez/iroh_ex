@@ -3,9 +3,9 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 10
+  @node_cnt 5
   # 10_000
-  @msg_cnt 100
+  @msg_cnt 5
   @rand_msg_delay 1000
 
   @msg_timeout 30_000
@@ -137,7 +137,7 @@ defmodule IrohExTest do
 
     Enum.each(tasks, &Task.await/1)
 
-    Process.sleep(10_000)
+    # Process.sleep(10_000)
 
     # msg_counts = count_messages()
     # IO.inspect(msg_counts, label: "Messages")

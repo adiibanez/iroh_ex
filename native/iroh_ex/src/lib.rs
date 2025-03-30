@@ -197,6 +197,7 @@ mod atoms {
         iroh_gossip_neighbor_down,
         iroh_gossip_node_discovered,
         iroh_gossip_message_received,
+        iroh_gossip_message_unhandled,
     }
 }
 
@@ -548,17 +549,23 @@ async fn connect_node_async_internal(
     RUNTIME.spawn(async move {
         // let mut names = HashMap::new();
         //let receiver = mpsc_event_receiver_arc_clone.read().await;
-
-        let mut msg_env = OwnedEnv::new();
+        // let mut msg_env = OwnedEnv::new();
 
         while let Some(event) = mpsc_event_receiver_arc_clone.write().await.recv().await {
+            let mut msg_env = OwnedEnv::new();
+
             //while let Some(event) = receiver.recv().await {
             // tracing::debug!("📩 Received event: {:?}", event);
+            // let mut msg_env = OwnedEnv::new();
+            // if let Err(e) = msg_env.send_and_clear(&pid, |env| {
+            //     (atoms::iroh_gossip_message_received(), "test1", "test2").encode(env)
+            // }) {
+            //     tracing::debug!("⚠️ Failed to send joined message: {:?}", e);
+            // }
 
             match event {
                 Event::Gossip(GossipEvent::Joined(pub_keys)) => {
                     tracing::info!("Joined {:?} {:?}", node_id_short, pub_keys);
-
                     if let Err(e) = msg_env.send_and_clear(&pid, |env| {
                         (
                             atoms::iroh_gossip_joined(),
@@ -603,11 +610,11 @@ async fn connect_node_async_internal(
                 }
 
                 Event::Gossip(GossipEvent::Received(msg)) => {
-                    if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-                        (atoms::iroh_gossip_message_received(), "test3", "test4").encode(env)
-                    }) {
-                        tracing::debug!("⚠️ Failed to send joined message: {:?}", e);
-                    }
+                    // if let Err(e) = msg_env.send_and_clear(&pid, |env| {
+                    //     (atoms::iroh_gossip_message_received(), "test3", "test4").encode(env)
+                    // }) {
+                    //     tracing::debug!("⚠️ Failed to send joined message: {:?}", e);
+                    // }
 
                     match Message::from_bytes(&msg.content) {
                         Ok(message) => {
@@ -616,11 +623,25 @@ async fn connect_node_async_internal(
                                     // names.insert(from, name.clone());
                                     tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
 
+                                    // let mut msg_env = OwnedEnv::new();
+
+                                    // if !pid.is_alive() {
+                                    //     tracing::error!(
+                                    //         "🚨 Elixir process (pid) is dead! Cannot send message."
+                                    //     );
+                                    // } else {
+                                    //     tracing::info!(
+                                    //         "✅ Elixir process (pid) is alive. Sending message..."
+                                    //     );
+                                    // }
+
                                     if let Err(e) = msg_env.send_and_clear(&pid, |env| {
                                         (
                                             atoms::iroh_gossip_message_received(),
                                             node_id_short.clone(),
                                             name.clone(),
+                                            // "test_static1",
+                                            // "test_static2",
                                         )
                                             .encode(env)
                                     }) {
@@ -644,6 +665,12 @@ async fn connect_node_async_internal(
                 }
                 _ => {
                     tracing::debug!("🔍 Ignored unhandled event: {:?}", event);
+                    let message = format!("🔍 Ignored unhandled event: {:?}", event);
+                    if let Err(e) = msg_env.send_and_clear(&pid, |env| {
+                        (atoms::iroh_gossip_message_unhandled(), message).encode(env)
+                    }) {
+                        tracing::debug!("⚠️ Failed to send unhandled message: {:?}", e);
+                    }
                 }
             }
         }
