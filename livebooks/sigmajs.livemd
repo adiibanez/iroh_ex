@@ -32,6 +32,10 @@ defmodule SigmaGraph do
     Kino.JS.Live.cast(kino, {:add_node, node, replace})
   end
 
+  def merge_node(kino, node) do
+    Kino.JS.Live.cast(kino, {:merge_node, node})
+  end
+
   # Remove a node
   def remove_node(kino, node_id) do
     Kino.JS.Live.cast(kino, {:remove_node, node_id})
@@ -99,6 +103,22 @@ defmodule SigmaGraph do
       ctx,
       "add_node",
       node |> Map.put(:replace, replace)
+    )
+
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:merge_node, node}, ctx) do
+    ctx =
+      update_in(ctx.assigns.nodes, fn nodes ->
+        Map.update(nodes, node.id, node, &Map.merge(&1, node))
+      end)
+
+    broadcast_event(
+      ctx,
+      "merge_node",
+      node
     )
 
     {:noreply, ctx}
@@ -223,15 +243,26 @@ defmodule SigmaGraph do
 
           graph.addNode(node.id, node);
 
-          // Ring centered at (0,0) with radius 10
-          if(node.layout == 'ring') circular.assign(graph); // placeNodesInRing(0, 0, 10);
-          if(node.layout == 'grid') placeNodesInGrid(2, 0, 3, 0.2);
+          // placeNodesInRing(centerX, centerY, radius)
+          if(node.layout == 'ring') placeNodesInRing(0, 0, 10); // circular.assign(graph);
+          // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
+          if(node.layout == 'grid') placeNodesInGrid(13, 0, 4, 1);
 
           adjustLabelPositions();
         } else {
           console.log("Node " + node.id + " already exists, ignore");
         }
         renderer.refresh();
+      });
+
+      ctx.handleEvent("merge_node", (node) => {
+        console.log("Merge node", node);
+
+        if (graph.hasNode(node.id)) {
+          graph.mergeNode(node.id, node);
+          adjustLabelPositions();
+          renderer.refresh();
+        }
       });
 
       ctx.handleEvent("remove_node", (nodeId) => {
@@ -557,7 +588,8 @@ defmodule IrohObserver do
      state
      |> Map.put(:ticket, ticket)
      |> Map.put(:mothership_node, mothership_node_ref)
-     |> Map.put(:nodes, nodes)}
+     |> Map.put(:nodes, nodes)
+     |> Map.put(:peers, %{})}
   end
 
   @impl true
@@ -705,13 +737,57 @@ defmodule IrohObserver do
 
   def handle_info({:iroh_gossip_neighbor_up, source, target}, %{graph: graph} = state) do
     IO.puts("iroh_gossip_neighbor_up #{source} #{target}")
+
+    state =
+      update_in(state.peers, fn peers ->
+        updated = Map.update(peers, source, [target], fn peers -> peers ++ [target] end)
+        updated
+      end)
+
+    peers = Enum.count(state.peers[source])
+
+    color =
+      cond do
+        peers == 0 -> "grey"
+        peers < 3 -> "orange"
+        peers >= 3 -> "green"
+      end
+
+    SigmaGraph.merge_node(
+      graph,
+      %{id: source, layout: "ring", color: color, label: "#{source} P:#{peers}"}
+    )
+
     SigmaGraph.add_edge(graph, %{source: source, target: target})
+
     {:noreply, state}
   end
 
   def handle_info({:iroh_gossip_neighbor_down, source, target}, %{graph: graph} = state) do
     IO.puts("iroh_gossip_neighbor_down #{source} #{target}")
+
+    state =
+      update_in(state.peers, fn peers ->
+        updated = Map.update(peers, source, [], fn peers -> peers -- [target] end)
+        updated
+      end)
+
+    peers = Enum.count(state.peers[source])
+
+    color =
+      cond do
+        peers == 0 -> "grey"
+        peers < 3 -> "orange"
+        peers >= 3 -> "green"
+      end
+
+    SigmaGraph.merge_node(
+      graph,
+      %{id: source, layout: "ring", color: color, label: "#{source} P:#{peers}"}
+    )
+
     SigmaGraph.remove_edge(graph, %{source: source, target: target})
+
     {:noreply, state}
   end
 
@@ -842,8 +918,10 @@ Kino.listen(start_button, fn _event ->
 
   {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
 
-  # Node setup
+  # Use "dummy" logger
   # GenServer.call(observer_pid, {:setup_nodes, num_nodes, logger_pid})
+
+  # Use IrohObserver, pid == nil means self()
   GenServer.call(observer_pid, {:setup_nodes, num_nodes, nil})
   # Connect nodes
   GenServer.call(observer_pid, {:connect_nodes})
