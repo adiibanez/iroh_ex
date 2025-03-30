@@ -3,10 +3,12 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 5
+  @node_cnt 10
   # 10_000
   @msg_cnt 5
   @rand_msg_delay 1000
+  @use_random_sender false
+  @delay_after_connect 10_000
 
   @msg_timeout 30_000
 
@@ -108,13 +110,20 @@ defmodule IrohExTest do
         _ -> @msg_cnt
       end
 
+    once_random_node = Enum.random(nodes)
+
     tasks =
       Enum.map(1..msg_cnt, fn x ->
         Task.async(fn ->
           # IO.puts("Nodes: #{Enum.count(nodes)}")
           # node = Enum.at(nodes, :rand.uniform(Enum.count(nodes) - 1))
-          node = Enum.random(nodes)
-          # node = mothership_node_ref
+
+          #node = Enum.random(nodes)
+          node = case @use_random_sender do
+            true -> Enum.random(nodes)
+            false -> once_random_node
+          end
+
           _node_id = Native.gen_node_addr(node)
           # IO.inspect(node, label: "Send msg Node ref")
 
@@ -137,7 +146,7 @@ defmodule IrohExTest do
 
     Enum.each(tasks, &Task.await/1)
 
-    # Process.sleep(10_000)
+    Process.sleep(@delay_after_connect)
 
     # msg_counts = count_messages()
     # IO.inspect(msg_counts, label: "Messages")
@@ -214,7 +223,7 @@ end
 defmodule GossipParser do
   def parse_gossip_messages(messages) do
     Enum.reduce(messages, %{nodes: %{}}, fn
-      {:iroh_gossip_node_discovered, source, discovered}, acc ->
+      {:iroh_gossip_neighbor_up, source, discovered}, acc ->
         update_in(acc, [:nodes, source], fn
           nil -> %{peers: [discovered], messages: [], msg_count: 0}
           node -> %{node | peers: [discovered | node.peers || []]}
@@ -229,44 +238,6 @@ defmodule GossipParser do
             %{node | messages: [msg | node.messages || []], msg_count: (node.msg_count || 0) + 1}
         end)
 
-      _other, acc ->
-        acc
-    end)
-  end
-
-  def parse_gossip_messages_(messages) do
-    Enum.reduce(messages, %{nodes: %{}}, fn
-      {:iroh_gossip_node_discovered, source, discovered}, acc ->
-        update_in(acc, [:nodes, source], fn node ->
-          case node do
-            # Initialize node with peers
-            nil ->
-              %{peers: [discovered]}
-
-            node ->
-              update_in(node, [:peers], fn
-                nil -> [discovered]
-                peers -> [discovered | peers]
-              end)
-          end
-        end)
-
-      {:iroh_gossip_message_received, source, msg}, acc ->
-        update_in(acc, [:nodes, source], fn node ->
-          case node do
-            # Initialize node with messages
-            nil ->
-              %{messages: [msg]}
-
-            node ->
-              update_in(node, [:messages], fn
-                nil -> [msg]
-                msgs -> [msg | msgs]
-              end)
-          end
-        end)
-
-      # Ignore other messages
       _other, acc ->
         acc
     end)
