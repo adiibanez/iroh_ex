@@ -3,12 +3,14 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 10
+  @node_cnt 100
   # 10_000
-  @msg_cnt 5
-  @rand_msg_delay 1000
-  @use_random_sender false
-  @delay_after_connect 10_000
+  @msg_cnt 1000
+  @rand_msg_delay 50
+  @use_random_sender true
+  @delay_after_connect 3000
+  @delay_after_send 1000
+  @max_send_concurrency 32
 
   @msg_timeout 30_000
 
@@ -97,7 +99,7 @@ defmodule IrohExTest do
 
     # Task.await(initial_msg, 1000)
 
-    Process.sleep(2000)
+    Process.sleep(@delay_after_connect)
 
     # initial_msg =
     #   Task.async(fn -> Native.send_message(mothership_node_ref, "MSG: Initial msg") end)
@@ -112,41 +114,39 @@ defmodule IrohExTest do
 
     once_random_node = Enum.random(nodes)
 
-    tasks =
-      Enum.map(1..msg_cnt, fn x ->
-        Task.async(fn ->
-          # IO.puts("Nodes: #{Enum.count(nodes)}")
-          # node = Enum.at(nodes, :rand.uniform(Enum.count(nodes) - 1))
-
-          #node = Enum.random(nodes)
-          node = case @use_random_sender do
-            true -> Enum.random(nodes)
-            false -> once_random_node
-          end
-
-          _node_id = Native.gen_node_addr(node)
-          # IO.inspect(node, label: "Send msg Node ref")
-
-          rand_msg_delay_max =
-            case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
-              {rand_msg_delay, _} -> rand_msg_delay
-              _ -> @rand_msg_delay
+    stream =
+      Stream.map(1..msg_cnt, fn x ->
+        # Return the *action* to be performed
+        fn ->
+          node =
+            case @use_random_sender do
+              true -> Enum.random(nodes)
+              false -> once_random_node
             end
 
-          rand_msg_delay = :rand.uniform(rand_msg_delay_max)
+          _node_id = Native.gen_node_addr(node)
+          rand_msg_delay_max =
+          case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
+            {rand_msg_delay, _} -> rand_msg_delay
+            _ -> @rand_msg_delay
+          end
 
-          # Process.sleep(:rand.uniform(rand_msg_delay))
-          Process.sleep(rand_msg_delay)
-          # from #{node_id}
+          rand_msg_delay = :rand.uniform(rand_msg_delay_max)
+          Process.sleep(rand_msg_delay)  # Sleep *before* the task
+
           Native.send_message(node, "MSG:#{x} rand_delay: #{rand_msg_delay}")
-        end)
+        end
       end)
 
-    IO.inspect(Enum.count(tasks), label: "Tasks")
+    stream
+    |> Task.async_stream(fn action -> action.() end, [max_concurrency: @max_send_concurrency])
+    |> Enum.to_list()
 
-    Enum.each(tasks, &Task.await/1)
+    # IO.inspect(Enum.count(tasks), label: "Tasks")
 
-    Process.sleep(@delay_after_connect)
+    # Enum.each(tasks, &Task.await/1)
+
+    Process.sleep(@delay_after_send)
 
     # msg_counts = count_messages()
     # IO.inspect(msg_counts, label: "Messages")
