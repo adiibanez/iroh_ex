@@ -3,9 +3,9 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 10
+  @node_cnt 100
   # 10_000
-  @msg_cnt 10
+  @msg_cnt 10_000
   @rand_msg_delay 50
   @use_random_sender true
   @delay_after_connect 3000
@@ -125,21 +125,24 @@ defmodule IrohExTest do
             end
 
           _node_id = Native.gen_node_addr(node)
+
           rand_msg_delay_max =
-          case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
-            {rand_msg_delay, _} -> rand_msg_delay
-            _ -> @rand_msg_delay
-          end
+            case Integer.parse(System.get_env("RAND_MSG_DELAY", "#{@rand_msg_delay}")) do
+              {rand_msg_delay, _} -> rand_msg_delay
+              _ -> @rand_msg_delay
+            end
 
           rand_msg_delay = :rand.uniform(rand_msg_delay_max)
-          Process.sleep(rand_msg_delay)  # Sleep *before* the task
+          # Sleep *before* the task
+          Process.sleep(rand_msg_delay)
 
           Native.send_message(node, "MSG:#{x} rand_delay: #{rand_msg_delay}")
         end
       end)
 
     stream
-    |> Task.async_stream(fn action -> action.() end, [max_concurrency: @max_send_concurrency])
+    # |> Task.async_stream(fn action -> action.() end, max_concurrency: @max_send_concurrency)
+    |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
     |> Enum.to_list()
 
     # IO.inspect(Enum.count(tasks), label: "Tasks")
