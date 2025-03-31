@@ -54,17 +54,14 @@ codegen-units = 512
 incremental = true
 # panic = "abort"
 
-
 [profile.release]
 debug = false
 lto = "off"
 codegen-units = 1024
 incremental = true
-# panic = "abort"
+panic = "abort"
 
 #[profile.release]
-#lto = "off" 
-#codegen-units = 256
 #lto = "fat" 
 #codegen-units = 1
 #strip = true

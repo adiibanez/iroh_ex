@@ -22,6 +22,7 @@ use rand::Rng;
 
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -32,7 +33,7 @@ use std::fmt;
 use std::ptr;
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use iroh::{
     endpoint::Connection,
     protocol::{ProtocolHandler, Router},
@@ -132,22 +133,22 @@ impl NodeState {
     }
 }
 
-impl Drop for NodeState {
-    fn drop(&mut self) {
-        tracing::info!("🚀 Cleaning up NodeState before exit!");
-        RUNTIME.block_on(self.gossip.shutdown());
-        RUNTIME.block_on(self.router.shutdown());
-        RUNTIME.block_on(self.endpoint.close());
-        tracing::info!("✅ NodeState cleanup complete!");
-        // .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
-        // RUNTIME.spawn(async move {
-        //     self.gossip.shutdown().await;
-        //     self.router.shutdown();
-        //     self.endpoint.close().await;
-        //     tracing::info!("✅ NodeState cleanup complete!");
-        // });
-    }
-}
+// impl Drop for NodeState {
+//     fn drop(&mut self) {
+//         tracing::info!("🚀 Cleaning up NodeState before exit!");
+//         RUNTIME.block_on(self.gossip.shutdown());
+//         RUNTIME.block_on(self.router.shutdown());
+//         RUNTIME.block_on(self.endpoint.close());
+//         tracing::info!("✅ NodeState cleanup complete!");
+//         // .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
+//         // RUNTIME.spawn(async move {
+//         //     self.gossip.shutdown().await;
+//         //     self.router.shutdown();
+//         //     self.endpoint.close().await;
+//         //     tracing::info!("✅ NodeState cleanup complete!");
+//         // });
+//     }
+// }
 
 struct GossipWrapper {
     gossip: iroh_gossip::net::Gossip,
@@ -420,34 +421,10 @@ pub fn connect_node(
     Ok(node_ref)
 }
 
-#[rustler::nif(schedule = "DirtyIo")]
-fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
-    // let node = node_ref.lock().unwrap();
-    // node.disconnect_all();  // Assuming an API to disconnect all peers
-    Ok(())
-}
-
-#[rustler::nif(schedule = "DirtyIo")]
-fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
-    let node = node_ref.0.clone();
-    let state = node.lock().unwrap();
-
-    let endpoint = { state.endpoint.clone() };
-
-    //endpoint.discovery_stream();
-
-    let peers: Vec<_> = vec![]; //node.peers().iter().map(|p| p.to_string()).collect();
-    Ok(peers)
-}
-
-async fn connect_node_async_internal(
-    node_ref: ResourceArc<NodeRef>,
-    ticket: String,
-) -> Result<(), RustlerError> {
+async fn connect_node_async_internal(node_ref: ResourceArc<NodeRef>, ticket: String) -> Result<()> {
     let resource_arc = node_ref.0.clone();
 
-    let Ticket { topic, nodes } = Ticket::from_str(&ticket)
-        .map_err(|e| RustlerError::Term(Box::new(format!("❌ Ticket parsing error: {}", e))))?;
+    let Ticket { topic, nodes } = Ticket::from_str(&ticket).context("❌ Failed to parse ticket")?;
 
     // let (pid_test, test) = {
     //     let state = resource_arc.lock().unwrap();
@@ -469,6 +446,11 @@ async fn connect_node_async_internal(
         state.gossip.clone()
     };
 
+    let node_id = {
+        let state = resource_arc.lock().unwrap();
+        state.endpoint.node_id()
+    };
+
     let node_id_short: String = {
         let state = resource_arc.lock().unwrap();
         state.endpoint.node_id().fmt_short()
@@ -484,84 +466,52 @@ async fn connect_node_async_internal(
         nodes
     );
 
-    let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
+    // avoid adding me, myself and I
+    let nodes_filtered: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.node_id != node_id)
+        .filter(|n| n.node_id.fmt_short() != node_id_short)
+        .collect();
+
+    let node_ids: Vec<_> = nodes_filtered
+        .iter()
+        .map(|p| p.node_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
     if nodes.is_empty() {
-        tracing::info!("> Waiting for nodes...");
+        tracing::info!("Empty nodes list {:?}", nodes);
     } else {
-        for node in nodes {
-            endpoint_conn.add_node_addr(node).map_err(|e| {
-                RustlerError::Term(Box::new(format!("❌ Failed to add node: {}", e)))
-            })?;
+        for node in nodes_filtered {
+            tracing::info!("Adding node to addr book {:?}", node);
+            if let Err(e) = endpoint_clone.add_node_addr(node.clone()) {
+                tracing::error!("❌ Failed to add node to address book: {:?}", e);
+            }
         }
     }
 
-    let topic_result = timeout(
-        Duration::from_secs(5),
-        gossip.subscribe_and_join(topic, node_ids),
-    )
-    .await;
+    let topic = gossip
+        .subscribe_and_join(topic, node_ids)
+        .await
+        .context("❌ Failed to subscribe and join gossip")?;
 
-    let topic = match topic_result {
-        Err(_) => {
-            return Err(RustlerError::Term(Box::new(
-                "⏳ Gossip timeout".to_string(),
-            )));
-        }
-        Ok(Err(e)) => {
-            return Err(RustlerError::Term(Box::new(format!(
-                "❌ Gossip subscribe error: {:?}",
-                e
-            ))));
-        }
-        Ok(Ok(topic)) => topic,
-    };
+    tracing::info!("Subscribed to: {:?}", topic);
 
     let (sender, mut receiver) = topic.split();
-    let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<Event>(100);
-    let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
-    let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
-
-    // 🔄 **Gossip Event Listener**
-    RUNTIME.spawn(async move {
-        let msg_env = OwnedEnv::new();
-        tracing::info!("🎧 Listening for gossip events...");
-        loop {
-            match receiver.next().await {
-                Some(Ok(event)) => {
-                    tracing::debug!("🔔 Gossip Event: {:?}", event);
-                    if let Err(e) = mpsc_event_sender.send(event).await {
-                        tracing::warn!("⚠️ Failed to forward event: {:?}", e);
-                    }
-                }
-                Some(Err(e)) => {
-                    tracing::error!("❌ Error receiving gossip event: {:?}", e);
-                    tracing::info!("🔄 Restarting event handler in 2s...");
-                    sleep(Duration::from_secs(2)).await;
-                }
-                None => {
-                    tracing::warn!("⚠️ Gossip event stream ended...");
-                    sleep(Duration::from_millis(100)).await;
-                }
-            }
-        }
-    });
+    // let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<Event>(100);
+    // let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
+    // let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
 
     RUNTIME.spawn(async move {
         // let mut names = HashMap::new();
         //let receiver = mpsc_event_receiver_arc_clone.read().await;
         // let mut msg_env = OwnedEnv::new();
 
-        while let Some(event) = mpsc_event_receiver_arc_clone.write().await.recv().await {
+        while let Ok(Some(event)) = receiver.try_next().await {
+            // while let Some(event) = mpsc_event_receiver_arc_clone.write().await.recv().await {
             let mut msg_env = OwnedEnv::new();
-
-            //while let Some(event) = receiver.recv().await {
-            // tracing::debug!("📩 Received event: {:?}", event);
-            // let mut msg_env = OwnedEnv::new();
-            // if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-            //     (atoms::iroh_gossip_message_received(), "test1", "test2").encode(env)
-            // }) {
-            //     tracing::debug!("⚠️ Failed to send joined message: {:?}", e);
-            // }
 
             match event {
                 Event::Gossip(GossipEvent::Joined(pub_keys)) => {
@@ -621,7 +571,7 @@ async fn connect_node_async_internal(
                             match message {
                                 Message::AboutMe { from, name } => {
                                     // names.insert(from, name.clone());
-                                    tracing::info!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
+                                    tracing::debug!("💬 FROM: {} MSG: {}", from.fmt_short(), name);
 
                                     // let mut msg_env = OwnedEnv::new();
 
@@ -677,6 +627,26 @@ async fn connect_node_async_internal(
     });
 
     Ok(())
+}
+
+#[rustler::nif(schedule = "DirtyIo")]
+fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
+    // let node = node_ref.lock().unwrap();
+    // node.disconnect_all();  // Assuming an API to disconnect all peers
+    Ok(())
+}
+
+#[rustler::nif(schedule = "DirtyIo")]
+fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
+    let node = node_ref.0.clone();
+    let state = node.lock().unwrap();
+
+    let endpoint = { state.endpoint.clone() };
+
+    //endpoint.discovery_stream();
+
+    let peers: Vec<_> = vec![]; //node.peers().iter().map(|p| p.to_string()).collect();
+    Ok(peers)
 }
 
 // The protocol definition:
@@ -784,7 +754,7 @@ fn add(a: i64, b: i64) -> i64 {
 
 fn on_load(env: Env, _info: Term) -> bool {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("iroh=info,iroh_ex=debug"));
+        .unwrap_or_else(|_| EnvFilter::new("iroh=error,iroh_ex=info"));
 
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(filter)

@@ -169,6 +169,7 @@ defmodule SigmaGraph do
     import graphologyLayout from 'https://cdn.jsdelivr.net/npm/graphology-layout@0.6.1/+esm';
     import FA2Layout from 'https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/+esm';
     import graphOlogyLayoutForce from 'https://cdn.jsdelivr.net/npm/graphology-layout-force@0.2.4/+esm';
+    import sigmaEdgeCurve from 'https://cdn.jsdelivr.net/npm/@sigma/edge-curve@3.1.0/+esm';
 
     const { circular } = graphologyLayout;
 
@@ -187,7 +188,6 @@ defmodule SigmaGraph do
 
       // Store full labels separately
       const fullLabels = {};
-
 
       function placeNodesInRing(centerX, centerY, radius) {
           const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
@@ -246,7 +246,7 @@ defmodule SigmaGraph do
           // placeNodesInRing(centerX, centerY, radius)
           if(node.layout == 'ring') placeNodesInRing(0, 0, 10); // circular.assign(graph);
           // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
-          if(node.layout == 'grid') placeNodesInGrid(13, 0, 4, 1);
+          if(node.layout == 'grid') placeNodesInGrid(20, 0, 4, 1);
 
           adjustLabelPositions();
         } else {
@@ -260,6 +260,7 @@ defmodule SigmaGraph do
 
         if (graph.hasNode(node.id)) {
           graph.mergeNode(node.id, node);
+          fullLabels[node.id] = node.label;
           adjustLabelPositions();
           renderer.refresh();
         }
@@ -521,6 +522,7 @@ defmodule IrohObserver do
   alias IrohEx.Native
 
   @rand_msg_delay 1000
+  @node_size 5
 
   # Starts the GenServer and initiates tracing
   def start_link(graph) do
@@ -579,7 +581,13 @@ defmodule IrohObserver do
 
       SigmaGraph.add_node(
         graph,
-        %{id: "#{node_addr}", layout: "ring", color: "grey", label: "#{node_addr}"},
+        %{
+          id: "#{node_addr}",
+          layout: "ring",
+          size: @node_size,
+          color: "grey",
+          label: "#{node_addr}"
+        },
         true
       )
     end)
@@ -608,7 +616,13 @@ defmodule IrohObserver do
 
           SigmaGraph.add_node(
             graph,
-            %{id: "#{node_addr}", layout: "ring", color: "green", label: "#{node_addr}"},
+            %{
+              id: "#{node_addr}",
+              layout: "ring",
+              size: @node_size,
+              color: "grey",
+              label: "#{node_addr}"
+            },
             true
           )
         end)
@@ -647,7 +661,7 @@ defmodule IrohObserver do
 
           SigmaGraph.add_node(
             graph,
-            %{id: msg, layout: "grid", label: msg, color: "grey"},
+            %{id: msg, layout: "grid", size: @node_size, label: msg, color: "grey"},
             true
           )
 
@@ -705,7 +719,12 @@ defmodule IrohObserver do
       case missing_nodes do
         [] ->
           IO.puts("All nodes received #{msg}")
-          SigmaGraph.add_node(graph, %{id: msg, layout: "grid", label: msg, color: "green"}, true)
+
+          SigmaGraph.add_node(
+            graph,
+            %{id: msg, layout: "grid", size: @node_size, label: msg, color: "green"},
+            true
+          )
 
         _ ->
           SigmaGraph.add_node(
@@ -713,6 +732,7 @@ defmodule IrohObserver do
             %{
               id: msg,
               layout: "grid",
+              size: @node_size,
               label: "Missing nodes: #{Enum.join(missing_nodes, ",")}",
               color: "red"
             },
@@ -755,7 +775,13 @@ defmodule IrohObserver do
 
     SigmaGraph.merge_node(
       graph,
-      %{id: source, layout: "ring", color: color, label: "#{source} P:#{peers}"}
+      %{
+        id: source,
+        layout: "ring",
+        size: @node_size + peers * 2,
+        color: color,
+        label: "#{source} P:#{peers}"
+      }
     )
 
     SigmaGraph.add_edge(graph, %{source: source, target: target})
@@ -783,7 +809,13 @@ defmodule IrohObserver do
 
     SigmaGraph.merge_node(
       graph,
-      %{id: source, layout: "ring", color: color, label: "#{source} P:#{peers}"}
+      %{
+        id: source,
+        layout: "ring",
+        size: @node_size + peers * 2,
+        color: color,
+        label: "#{source} P:#{peers}"
+      }
     )
 
     SigmaGraph.remove_edge(graph, %{source: source, target: target})
@@ -907,10 +939,10 @@ defmodule IrohLogger do
   end
 end
 
-{:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
-
 Kino.listen(start_button, fn _event ->
   SigmaGraph.clear(graph)
+  # {:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
+
   num_nodes = Kino.Input.read(nodes_input)
   num_messages = Kino.Input.read(messages_input)
   use_random = Kino.Input.read(random_sender_input)
@@ -922,9 +954,9 @@ Kino.listen(start_button, fn _event ->
   # GenServer.call(observer_pid, {:setup_nodes, num_nodes, logger_pid})
 
   # Use IrohObserver, pid == nil means self()
-  GenServer.call(observer_pid, {:setup_nodes, num_nodes, nil})
+  GenServer.call(observer_pid, {:setup_nodes, num_nodes, nil}, 30_000)
   # Connect nodes
-  GenServer.call(observer_pid, {:connect_nodes})
+  GenServer.call(observer_pid, {:connect_nodes}, 30_000)
   Process.sleep(delay_ms)
 
   # Send messages
