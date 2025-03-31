@@ -120,8 +120,8 @@ pub struct NodeState {
     pub sender: GossipSender,
     pub mpsc_event_sender: Sender<ErlangMessageEvent>,
     pub mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
-    pub event_handler_task: Option<JoinHandle<()>>,
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
+    pub event_handler_task: Option<JoinHandle<()>>,
 }
 
 impl NodeState {
@@ -143,8 +143,8 @@ impl NodeState {
             sender,
             mpsc_event_sender,
             mpsc_event_receiver,
-            event_handler_task: None,
             erlang_event_handler_task,
+            event_handler_task: None,
             // mpsc_event_receiver,
         }
     }
@@ -297,7 +297,7 @@ async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef
     let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
     let (sender, _receiver) = topic.split();
 
-    let pid_clone = pid.clone();
+    let pid_clone = pid;
     let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
     let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
 
@@ -376,7 +376,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
     let (sender, _receiver) = topic.split();
 
-    let pid_clone = pid.clone();
+    let pid_clone = pid;
     let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
     let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
 
@@ -412,16 +412,10 @@ async fn erlang_msg_event_handler(
 
             match terms.len() {
                 0 => event.atom.encode(env),
-                1 => (event.atom, terms[0].clone()).encode(env),
-                2 => (event.atom, terms[0].clone(), terms[1].clone()).encode(env),
-                3 => (
-                    event.atom,
-                    terms[0].clone(),
-                    terms[1].clone(),
-                    terms[2].clone(),
-                )
-                    .encode(env),
-                _ => (event.atom, terms.iter().cloned().collect::<Vec<_>>()).encode(env),
+                1 => (event.atom, terms[0]).encode(env),
+                2 => (event.atom, terms[0], terms[1]).encode(env),
+                3 => (event.atom, terms[0], terms[1], terms[2]).encode(env),
+                _ => (event.atom, terms.to_vec()).encode(env),
             }
         }) {
             tracing::debug!("⚠️ Failed to send erlang message: {:?}", e);
@@ -513,7 +507,7 @@ pub fn connect_node(
     RUNTIME.spawn(async move {
         let pid = {
             let state = resource_arc.lock().unwrap();
-            state.pid.clone()
+            state.pid
         };
 
         // let msg_env = OwnedEnv::new();
@@ -636,7 +630,7 @@ async fn connect_node_async_internal(
     //     tracing::debug!("⚠️ Failed to send unhandled message: {:?}", e);
     // }
 
-    let pid_clone = pid.clone();
+    let pid_clone = pid;
 
     // if let Err(e) = erlang_sender_clone
     //     .send(ErlangMessageEvent {
@@ -706,7 +700,7 @@ async fn connect_node_async_internal(
         //     tracing::warn!("❌ Failed to send erlang message: {:?}", e);
         // }
 
-        let pid_clone = pid.clone();
+        let pid_clone = pid;
         let erlang_sender_clone = erlang_sender_clone.clone();
         let node_id_short_clone = node_id_short.clone();
 

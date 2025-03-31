@@ -39,9 +39,9 @@ defmodule IrohEx.MixProject do
       licenses: ["MIT"],
       description: "Elixir binding of iroh p2p lib",
       links: %{
-        GitHub: @source_url,
-        #LiveBook:
-        #"https://livebook.dev/run/?url=#{@source_url}/blob/main/livebooks/ble_demo.livemd"
+        GitHub: @source_url
+        # LiveBook:
+        # "https://livebook.dev/run/?url=#{@source_url}/blob/main/livebooks/ble_demo.livemd"
       },
       files: [
         "lib",
