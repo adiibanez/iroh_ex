@@ -1,7 +1,5 @@
 # IrohEx
 
-**TODO: Add description**
-
 [![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https://github.com/adiibanez/iroh_ex/blob/main/livebooks/sigmajs.livemd)
 
 ## Installation
