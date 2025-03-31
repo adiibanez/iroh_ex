@@ -6,8 +6,8 @@
 Mix.install([
   {:kino, "~> 0.15.3"},
   # {:kuzu_nif, "~> 0.7.0"},
-  {:iroh_ex, "~> 0.0.3"},
-  # {:iroh_ex,
+   {:iroh_ex, "~> 0.0.3"},
+  #{:iroh_ex,
   # path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
@@ -184,6 +184,9 @@ defmodule SigmaGraph do
         labelDensity: 0.2,
         labelRenderedSizeThreshold: 10,
         defaultLabelSize: 14,
+        edgeProgramClasses: {
+          curved: sigmaEdgeCurve,
+        },
       });
 
       // Store full labels separately
@@ -246,7 +249,7 @@ defmodule SigmaGraph do
           // placeNodesInRing(centerX, centerY, radius)
           if(node.layout == 'ring') placeNodesInRing(0, 0, 10); // circular.assign(graph);
           // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
-          if(node.layout == 'grid') placeNodesInGrid(20, 0, 4, 1);
+          if(node.layout == 'grid') placeNodesInGrid(20, -10, 4, 1);
 
           adjustLabelPositions();
         } else {
@@ -274,9 +277,9 @@ defmodule SigmaGraph do
         renderer.refresh();
       });
 
-      ctx.handleEvent("add_edge", ({ source, target }) => {
+      ctx.handleEvent("add_edge", ({ source, target, props }) => {
         if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
-          graph.addEdge(source, target);
+          graph.addEdge(source, target, props);
         }
         renderer.refresh();
       });
@@ -745,7 +748,7 @@ defmodule IrohObserver do
 
           Enum.each(missing_nodes, fn missing_node ->
             # IO.puts("Missing node #{missing_node} for #{msg}")
-            SigmaGraph.add_edge(graph, %{source: msg, target: missing_node, color: "red"})
+            SigmaGraph.add_edge(graph, %{source: msg, target: missing_node, props: %{ type: "curved" }})
           end)
       end
     end)
@@ -830,9 +833,8 @@ defmodule IrohObserver do
   end
 
   def handle_info(
-        {:whatver_iroh_gossip_message_received, target, msg},
+        {:iroh_gossip_message_received, target, msg},
         %{graph: _graph} = state
-        # , msg_receipts: msg_receipts
       ) do
     # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
 
@@ -914,7 +916,7 @@ swarming_delay_input =
 messages_input = Kino.Input.number("Number of Messages", default: 12, min: 1)
 random_sender_input = Kino.Input.checkbox("Use Random Sender", default: true)
 start_button = Kino.Control.button("Start Simulation")
-
+reset_button = Kino.Control.button("Reset")
 # Display Controls
 grid =
   Kino.Layout.grid([
@@ -922,7 +924,8 @@ grid =
     swarming_delay_input,
     messages_input,
     random_sender_input,
-    start_button
+    start_button,
+    reset_button
   ])
 
 defmodule IrohLogger do
@@ -939,14 +942,28 @@ defmodule IrohLogger do
   end
 end
 
-Kino.listen(start_button, fn _event ->
-  SigmaGraph.clear(graph)
-  # {:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
+grid
+```
 
-  num_nodes = Kino.Input.read(nodes_input)
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+
+num_nodes = Kino.Input.read(nodes_input)
   num_messages = Kino.Input.read(messages_input)
   use_random = Kino.Input.read(random_sender_input)
   delay_ms = Kino.Input.read(swarming_delay_input)
+
+
+
+Kino.listen(reset_button, fn _event -> 
+  SigmaGraph.clear(graph)
+end)
+
+Kino.listen(start_button, fn _event ->
+
+  SigmaGraph.clear(graph)
+  # {:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
 
   {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
 
@@ -963,8 +980,7 @@ Kino.listen(start_button, fn _event ->
   GenServer.call(observer_pid, {:send_messages, num_messages, use_random})
 
   # Final graph update visualizing pending deliveries
-  GenServer.call(observer_pid, :draw_missing)
+  #GenServer.call(observer_pid, :draw_missing)
 end)
 
-grid
 ```
