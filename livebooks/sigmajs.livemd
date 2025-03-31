@@ -5,10 +5,7 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  # {:kuzu_nif, "~> 0.7.0"},
-   {:iroh_ex, "~> 0.0.3"},
-  #{:iroh_ex,
-  # path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  {:iroh_ex, "~> 0.0.4"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
