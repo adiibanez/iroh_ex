@@ -2,7 +2,7 @@
 
 [package]
 name = "iroh_ex"
-version = "0.0.3"
+version = "0.0.4"
 authors = []
 edition = "2021"
 
@@ -59,7 +59,7 @@ debug = false
 lto = "off"
 codegen-units = 1024
 incremental = true
-panic = "abort"
+# panic = "abort"
 
 #[profile.release]
 #lto = "fat" 
