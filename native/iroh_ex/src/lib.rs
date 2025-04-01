@@ -11,6 +11,7 @@
 
 use chrono::Local;
 use iroh::endpoint;
+use iroh::RelayUrl;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
 };
@@ -174,18 +175,12 @@ struct GossipWrapper {
 impl Drop for GossipWrapper {
     fn drop(&mut self) {
         tracing::debug!(
-            "🚀 GossipWrapper: Gossip {:?} is being dropped!",
-            self.gossip
-        );
-
-        tracing::debug!(
-            "🗑️ GossipWrapper: Gossip {:?} at address: {:p}",
+            "🚀 GossipWrapper: Gossip {:?} at address {:p} is being dropped!",
             self.gossip,
             ptr::addr_of!(self)
         );
     }
 }
-
 struct EndpointWrapper {
     endpoint: iroh::Endpoint,
 }
@@ -193,8 +188,35 @@ struct EndpointWrapper {
 impl Drop for EndpointWrapper {
     fn drop(&mut self) {
         tracing::debug!(
+            "🚀 EndpointWrapper: Endpoint {:?}  at address {:p} is being dropped!",
+            self.endpoint.node_id().fmt_short(),
+            ptr::addr_of!(self)
+        );
+    }
+}
+struct GossipReceiverWrapper {
+    receiver: GossipReceiver
+}
+
+impl Drop for GossipReceiverWrapper {
+    fn drop(&mut self) {
+        tracing::debug!(
+            "🚀 GossipReceiverWrapper: GossipReceiver {:?} at address {:p} is being dropped!",
+            self.receiver,
+            ptr::addr_of!(self)
+        );
+    }
+}
+
+struct MpscReceiverWrapper {
+    receiver: mpsc::Receiver<ErlangMessageEvent>,
+}
+
+impl Drop for MpscReceiverWrapper {
+    fn drop(&mut self) {
+        tracing::debug!(
             "🚀 EndpointWrapper: Endpoint {:?} is being dropped!",
-            self.endpoint.node_id().fmt_short()
+            self.receiver
         );
     }
 }
@@ -214,8 +236,10 @@ mod atoms {
         lock_fail,
         not_found,
         offer_error,
-
         candidate_error,
+
+        // TODO: rename non gossip related events to _node_ in both rust / elixir
+        iroh_node_connected,
         iroh_gossip_joined,
         iroh_gossip_neighbor_up,
         iroh_gossip_neighbor_down,
@@ -265,6 +289,8 @@ async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef
 
     let endpoint_clone = endpoint.clone();
     let mut builder = iroh::protocol::Router::builder(endpoint.clone());
+
+    // let _relay_url = endpoint_clone.home_relay().initialized().await.unwrap();
 
     let gossip = Gossip::builder()
         .spawn(endpoint.clone())
@@ -418,7 +444,10 @@ async fn erlang_msg_event_handler(
                 _ => (event.atom, terms.to_vec()).encode(env),
             }
         }) {
-            tracing::debug!("⚠️ Failed to send erlang message: {:?}", e);
+            tracing::warn!(
+                "⚠️ erlang_msg_event_handler Failed to send erlang message: {:?}",
+                e
+            );
         }
     }
 }
@@ -620,6 +649,21 @@ async fn connect_node_async_internal(
         }
     }
 
+    let relay_url: RelayUrl = endpoint_clone.home_relay().initialized().await.unwrap();
+
+    if let Err(e) = erlang_sender_clone
+                                .send(ErlangMessageEvent {
+                                    atom: atoms::iroh_node_connected(),
+                                    payload: vec![
+                                        node_id.fmt_short(),
+                                        relay_url.as_str().to_string()
+                                        ],
+                                })
+                                .await
+                            {
+                                tracing::warn!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
+                            }
+
     // if let Err(e) = msg_env.send_and_clear(&pid, |env| {
     //     (
     //         atoms::ok(),
@@ -632,37 +676,10 @@ async fn connect_node_async_internal(
 
     let pid_clone = pid;
 
-    // if let Err(e) = erlang_sender_clone
-    //     .send(ErlangMessageEvent {
-    //         atom: atoms::ok(),
-    //         payload: vec![
-    //             "Test erlang_sender connect_node_async_internal before inner".to_string(),
-    //             "Node2".to_string(),
-    //             "Node3".to_string(),
-    //         ],
-    //     })
-    //     .await
-    // {
-    //     tracing::warn!("❌ Failed to send erlang message: {:?}", e);
-    // };
-
     let erlang_sender_clone_inner = erlang_sender_clone.clone();
 
     let mut state = node_ref.0.lock().unwrap();
     state.event_handler_task = Some(RUNTIME.spawn(async move {
-        // if let Err(e) = erlang_sender_clone_inner
-        //     .send(ErlangMessageEvent {
-        //         atom: atoms::ok(),
-        //         payload: vec![
-        //             "Test erlang_sender connect_node_async_internal inner".to_string(),
-        //             "Node2".to_string(),
-        //             "Node3".to_string(),
-        //         ],
-        //     })
-        //     .await
-        // {
-        //     tracing::warn!("❌ Failed to send erlang message: {:?}", e);
-        // }
 
         let topic = gossip
             .subscribe_and_join(topic, node_ids)
@@ -673,53 +690,16 @@ async fn connect_node_async_internal(
         tracing::debug!("Subscribed to: {:?}", topic);
 
         let (sender, mut receiver) = topic.split();
-        // let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<Event>(100);
-        // let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
-        // let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
-
-        // let mut names = HashMap::new();
-        //let receiver = mpsc_event_receiver_arc_clone.read().await;
-
-        // if let Err(e) = msg_env.send_and_clear(&pid_clone, |env| {
-        //     (atoms::ok(), "Hello from connect_node_async_internal inner").encode(env)
-        // }) {
-        //     tracing::debug!("⚠️ Failed to send unhandled message: {:?}", e);
-        // }
-
-        // if let Err(e) = erlang_sender_clone_inner
-        //     .send(ErlangMessageEvent {
-        //         atom: atoms::ok(),
-        //         payload: vec![
-        //             "Test erlang_sender connect_node_async_internal before while".to_string(),
-        //             "Node2".to_string(),
-        //             "Node3".to_string(),
-        //         ],
-        //     })
-        //     .await
-        // {
-        //     tracing::warn!("❌ Failed to send erlang message: {:?}", e);
-        // }
 
         let pid_clone = pid;
         let erlang_sender_clone = erlang_sender_clone.clone();
         let node_id_short_clone = node_id_short.clone();
 
-        // let event_handler_inner_task = RUNTIME.spawn(async move {
-        //     tracing::info!("Event handler started");
-
+        
         while let Some(event) = receiver.next().await {
             match event {
                 Ok(event) => {
-                    // if let Err(e) = erlang_sender_clone
-                    //     .send(ErlangMessageEvent {
-                    //         atom: atoms::ok(),
-                    //         payload: vec!["event received".to_string()],
-                    //     })
-                    //     .await
-                    // {
-                    //     tracing::warn!("❌ Failed to send erlang message: {:?}", e);
-                    // }
-
+        
                     match event {
                         Event::Gossip(GossipEvent::Joined(pub_keys)) => {
                             tracing::debug!("Joined {:?} {:?}", node_id_short_clone, pub_keys);
@@ -735,7 +715,7 @@ async fn connect_node_async_internal(
                                 })
                                 .await
                             {
-                                tracing::warn!("❌ Failed to send erlang message: {:?}", e);
+                                tracing::warn!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
                             }
                         }
                         Event::Gossip(GossipEvent::NeighborUp(pub_key)) => {
@@ -751,7 +731,7 @@ async fn connect_node_async_internal(
                                 })
                                 .await
                             {
-                                tracing::warn!("❌ Failed to send erlang message: {:?}", e);
+                                tracing::warn!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
                             }
                         }
                         Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
@@ -767,24 +747,11 @@ async fn connect_node_async_internal(
                                 })
                                 .await
                             {
-                                tracing::warn!("❌ Failed to send erlang message: {:?}", e);
+                                tracing::warn!("❌ GossipEvent::NeighborDown Failed to send erlang message: {:?}", e);
                             }
                         }
                         Event::Gossip(GossipEvent::Received(msg)) => {
                             tracing::debug!("Received message: {:?}", msg);
-
-                            // if let Err(e) = erlang_sender_clone
-                            //     .send(ErlangMessageEvent {
-                            //         atom: atoms::ok(),
-                            //         payload: vec![
-                            //             node_id_short_clone.clone(),
-                            //             "Before parsing message".to_string(),
-                            //         ],
-                            //     })
-                            //     .await
-                            // {
-                            //     tracing::warn!("❌ Failed to send erlang message: {:?}", e);
-                            // }
 
                             match Message::from_bytes(&msg.content) {
                                 Ok(message) => match message {
@@ -802,7 +769,7 @@ async fn connect_node_async_internal(
                                             .await
                                         {
                                             tracing::warn!(
-                                                "❌ Failed to send erlang message: {:?}",
+                                                "❌ GossipEvent::Received Failed to send erlang message: {:?}",
                                                 e
                                             );
                                         }
@@ -812,13 +779,13 @@ async fn connect_node_async_internal(
                                     }
                                 },
                                 Err(e) => {
-                                    tracing::warn!("❌ Failed to parse message: {:?}", e);
+                                    tracing::warn!("❌ GossipEvent::Received Failed to parse message: {:?}", e);
                                 }
                             }
                         }
-                        _ => {
-                            tracing::debug!("🔍 Ignored unhandled event: {:?}", event);
-                            let message = format!("🔍 Ignored unhandled event: {:?}", event);
+                        unhandled_event => {
+                            tracing::debug!("🔍 Ignored unhandled event: {:?}", unhandled_event);
+                            let message = format!("🔍 Ignored unhandled event: {:?}", unhandled_event);
 
                             if let Err(e) = erlang_sender_clone
                                 .send(ErlangMessageEvent {
@@ -827,7 +794,7 @@ async fn connect_node_async_internal(
                                 })
                                 .await
                             {
-                                tracing::warn!("❌ Failed to send erlang message: {:?}", e);
+                                tracing::warn!("❌ unhandled_event {:?} Failed to send erlang message: {:?}", unhandled_event, e);
                             }
                         }
                     }
