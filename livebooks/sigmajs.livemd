@@ -5,7 +5,9 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.4"},
+  # {:iroh_ex, "~> 0.0.4"},
+   {:iroh_ex,
+   path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -43,9 +45,18 @@ defmodule SigmaGraph do
     Kino.JS.Live.cast(kino, {:add_edge, edge})
   end
 
+  # Add an edge without rendering
+  def add_edge_batched(kino, edge) do
+    Kino.JS.Live.cast(kino, {:add_edge_batched, edge})
+  end
+
   # Remove an edge
   def remove_edge(kino, edge) do
     Kino.JS.Live.cast(kino, {:remove_edge, edge})
+  end
+
+  def render(kino) do
+    Kino.JS.Live.cast(kino, :render)
   end
 
   def clear(kino) do
@@ -129,6 +140,19 @@ defmodule SigmaGraph do
   end
 
   @impl true
+  def handle_cast({:add_edge_batched, edge}, ctx) do
+    ctx = update_in(ctx.assigns.edges, &[edge | &1])
+    broadcast_event(ctx, "add_edge_batched", edge)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast(:render, ctx) do
+    broadcast_event(ctx, "render", [])
+    {:noreply, ctx}
+  end
+
+  @impl true
   def handle_cast({:remove_node, node_id}, ctx) do
     ctx = update_in(ctx.assigns.nodes, &Map.delete(&1, node_id))
 
@@ -159,6 +183,12 @@ defmodule SigmaGraph do
     {:noreply, ctx}
   end
 
+  @impl true
+  def handle_info(msg, ctx) do
+    IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
+    {:noreply, ctx}
+  end
+
   asset "main.js" do
     """
     import Sigma from 'https://cdn.jsdelivr.net/npm/sigma@3.0.1/+esm';
@@ -167,6 +197,7 @@ defmodule SigmaGraph do
     import FA2Layout from 'https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/+esm';
     import graphOlogyLayoutForce from 'https://cdn.jsdelivr.net/npm/graphology-layout-force@0.2.4/+esm';
     import sigmaEdgeCurve from 'https://cdn.jsdelivr.net/npm/@sigma/edge-curve@3.1.0/+esm';
+    import debounce from 'https://cdn.jsdelivr.net/npm/debounce@2.2.0/+esm';
 
     const { circular } = graphologyLayout;
 
@@ -215,6 +246,11 @@ defmodule SigmaGraph do
           });
       }
 
+      function render() {
+        adjustLabelPositions();
+        renderer.refresh();
+      }
+
       function formatLabel(label) {
         return label.length > 20 ? label.substring(0, 20) + "..." : label;
       }
@@ -248,11 +284,11 @@ defmodule SigmaGraph do
           // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
           if(node.layout == 'grid') placeNodesInGrid(20, -10, 4, 1);
 
-          adjustLabelPositions();
         } else {
           console.log("Node " + node.id + " already exists, ignore");
         }
-        renderer.refresh();
+
+        debounce(render, 100);
       });
 
       ctx.handleEvent("merge_node", (node) => {
@@ -262,7 +298,7 @@ defmodule SigmaGraph do
           graph.mergeNode(node.id, node);
           fullLabels[node.id] = node.label;
           adjustLabelPositions();
-          renderer.refresh();
+          debounce(render, 100);
         }
       });
 
@@ -271,13 +307,24 @@ defmodule SigmaGraph do
           graph.dropNode(nodeId);
           delete fullLabels[nodeId];
         }
-        renderer.refresh();
+        debounce(render, 100);
       });
 
       ctx.handleEvent("add_edge", ({ source, target, props }) => {
+        if (graph.hasNode(source) && graph.hasNode(target)) {
+          if( graph.hasEdge(source, target) ) graph.dropEdge(source, target);
+          graph.addEdge(source, target, props);
+        } 
+        debounce(render, 100);
+      });
+
+      ctx.handleEvent("add_edge_batched", ({ source, target, props }) => {
         if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
           graph.addEdge(source, target, props);
         }
+      });
+
+      ctx.handleEvent("render", (ctx) => {
         renderer.refresh();
       });
 
@@ -413,7 +460,8 @@ defmodule ProcessMonitor do
     {:noreply, state}
   end
 
-  def handle_info(_msg, state) do
+  def handle_info(msg, state) do
+    IO.puts("#{__MODULE__} catchall #{inspect(msg)}")
     {:noreply, state}
   end
 end
@@ -659,11 +707,24 @@ defmodule IrohObserver do
           msg = "MSG:#{x}"
           timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
 
+          Native.send_message(node, msg)
+
           SigmaGraph.add_node(
             graph,
             %{id: msg, layout: "grid", size: @node_size, label: msg, color: "grey"},
             true
           )
+
+          # add edge to all pending messages
+          target_nodes = nodes -- [node]
+          Enum.each(target_nodes, fn n -> 
+            node_id = Native.gen_node_addr(n)
+            edge = %{source: msg, target: node_id, props: %{ type: "curved", color: "orange" }}
+            #IO.inspect(edge, label: "Msg pending edge")
+            SigmaGraph.add_edge_batched(graph, edge)
+          end)
+
+          SigmaGraph.render(graph)
 
           receipt = %{
             sender: node_id,
@@ -831,7 +892,7 @@ defmodule IrohObserver do
 
   def handle_info(
         {:iroh_gossip_message_received, target, msg},
-        %{graph: _graph} = state
+        %{graph: graph} = state
       ) do
     # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
 
@@ -840,6 +901,9 @@ defmodule IrohObserver do
     # IO.puts("#{inspect(msg_receipts)} Before update")
 
     # timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+
+    # remove pending edge
+    SigmaGraph.remove_edge(graph, %{source: msg, target: target})
 
     state =
       update_in(state.msg_receipts, fn msg_receipts ->
@@ -951,8 +1015,6 @@ num_nodes = Kino.Input.read(nodes_input)
   use_random = Kino.Input.read(random_sender_input)
   delay_ms = Kino.Input.read(swarming_delay_input)
 
-
-
 Kino.listen(reset_button, fn _event -> 
   SigmaGraph.clear(graph)
 end)
@@ -960,21 +1022,26 @@ end)
 Kino.listen(start_button, fn _event ->
 
   SigmaGraph.clear(graph)
-  # {:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
-
+  {:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
   {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
 
+  IO.inspect(%{logger_pid: logger_pid, observer_pid: observer_pid}, label: "Pids")
+
   # Use "dummy" logger
-  # GenServer.call(observer_pid, {:setup_nodes, num_nodes, logger_pid})
+  # GenServer.call(observer_pid, {:setup_nodes, num_nodes, logger_pid}, 30_000)
 
   # Use IrohObserver, pid == nil means self()
   GenServer.call(observer_pid, {:setup_nodes, num_nodes, nil}, 30_000)
   # Connect nodes
-  GenServer.call(observer_pid, {:connect_nodes}, 30_000)
+  GenServer.call(observer_pid, {:connect_nodes}, 60_000)
   Process.sleep(delay_ms)
 
   # Send messages
-  GenServer.call(observer_pid, {:send_messages, num_messages, use_random})
+  GenServer.call(observer_pid, {:send_messages, num_messages, use_random}, 60_000)
+
+  {:messages, messages} = :erlang.process_info(self(), :messages)
+
+  IO.inspect(messages, label: "Inbox")
 
   # Final graph update visualizing pending deliveries
   #GenServer.call(observer_pid, :draw_missing)
