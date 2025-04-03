@@ -8,12 +8,13 @@
 // #![allow(unexpected_cfgs)]
 // #[cfg(not(clippy))]
 #![feature(mpmc_channel)]
+#![allow(clippy::too_many_arguments)]
 
 use chrono::Local;
 use iroh::endpoint;
 use iroh::RelayUrl;
 use rustler::{
-    Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
+    Encoder, Env, Error as RustlerError, LocalPid, Monitor, NifResult, OwnedEnv, ResourceArc, Term,
 };
 
 use atty::Stream;
@@ -45,6 +46,8 @@ use iroh::{
     protocol::{ProtocolHandler, Router},
     Endpoint, NodeAddr, NodeId, SecretKey,
 };
+
+use rand::rngs::OsRng;
 
 // use quic_rpc::transport::flume::FlumeConnector;
 
@@ -86,6 +89,7 @@ fn generate_topic_name() -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(20)
+        .map(char::from) // Convert u8 to char
         .collect()
 }
 
@@ -115,6 +119,7 @@ pub struct NodeRef(pub(crate) Arc<Mutex<NodeState>>);
 
 pub struct NodeState {
     pub pid: LocalPid,
+    pub monitor_ref: Option<Monitor>,
     pub endpoint: Endpoint,
     pub router: Router,
     pub gossip: Gossip,
@@ -123,6 +128,7 @@ pub struct NodeState {
     pub mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
     pub event_handler_task: Option<JoinHandle<()>>,
+    pub discovery_event_handler_task: Option<JoinHandle<()>>,
 }
 
 impl NodeState {
@@ -134,18 +140,19 @@ impl NodeState {
         sender: GossipSender,
         mpsc_event_sender: Sender<ErlangMessageEvent>,
         mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
-        erlang_event_handler_task: Option<JoinHandle<()>>,
     ) -> Self {
         NodeState {
             pid,
+            monitor_ref: None,
             endpoint,
             router,
             gossip,
             sender,
             mpsc_event_sender,
             mpsc_event_receiver,
-            erlang_event_handler_task,
+            erlang_event_handler_task: None,
             event_handler_task: None,
+            discovery_event_handler_task: None,
             // mpsc_event_receiver,
         }
     }
@@ -158,6 +165,7 @@ impl Drop for NodeState {
         let router = self.router.clone();
         let endpoint = self.endpoint.clone();
         let mpsc_event_sender = self.mpsc_event_sender.clone();
+        let monitor_ref = self.monitor_ref;
 
         RUNTIME.spawn(async move {
             gossip.shutdown().await;
@@ -195,7 +203,7 @@ impl Drop for EndpointWrapper {
     }
 }
 struct GossipReceiverWrapper {
-    receiver: GossipReceiver
+    receiver: GossipReceiver,
 }
 
 impl Drop for GossipReceiverWrapper {
@@ -259,93 +267,16 @@ fn string_to_32_byte_array(s: &str) -> [u8; 32] {
 
 #[rustler::nif]
 pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
-    // let secret_key = SecretKey::generate(rand::rngs::OsRng);
+    let mut rng = OsRng; // Create an instance of OsRng
+    let secret_key = SecretKey::generate(&mut rng);
+
+    // let secret_key = SecretKey::generate(OsRng);
     //println!("secret key: {secret_key}");
-    let secret_key = "blabalba";
+    // let secret_key = "blabalba";
     Ok(secret_key.to_string())
 }
 
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn create_node_async(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
-    // Block inside DirtyCpu to safely wait for the async task
-    tokio::task::block_in_place(|| {
-        RUNTIME.block_on(async { create_node_async_internal(pid).await })
-    })
-}
-
-async fn create_node_async_internal(pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
-    let endpoint = Endpoint::builder()
-        .discovery_local_network()
-        .discovery_n0()
-        .bind()
-        .await
-        .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
-
-    // println!(
-    //     "PID: {:?} Endpoint node id: {:?}",
-    //     pid.as_c_arg(),
-    //     endpoint.node_id()
-    // );
-
-    let endpoint_clone = endpoint.clone();
-    let mut builder = iroh::protocol::Router::builder(endpoint.clone());
-
-    // let _relay_url = endpoint_clone.home_relay().initialized().await.unwrap();
-
-    let gossip = Gossip::builder()
-        .spawn(endpoint.clone())
-        .await
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip protocol error: {}", e))))?;
-
-    builder = builder.accept(GossipALPN, gossip.clone());
-    builder = builder.accept(ALPN, Echo);
-
-    let router = builder
-        .spawn()
-        .await
-        .map_err(|e| RustlerError::Term(Box::new(format!("Router error: {}", e))))?;
-
-    let router_clone = router.clone();
-
-    let node_addr = router
-        .endpoint()
-        .node_addr()
-        .await
-        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
-
-    let topic = gossip
-        .subscribe(
-            TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string())),
-            vec![],
-        )
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
-
-    let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
-    let (sender, _receiver) = topic.split();
-
-    let pid_clone = pid;
-    let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
-    let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
-
-    let erlang_event_handler_task =
-        Some(RUNTIME.spawn(erlang_msg_event_handler(mpsc_event_receiver_arc, pid_clone)));
-
-    let state = NodeState::new(
-        pid,
-        endpoint_clone,
-        router_clone,
-        gossip,
-        sender,
-        mpsc_event_sender,
-        mpsc_event_receiver_arc_clone,
-        erlang_event_handler_task,
-    );
-
-    let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
-    Ok(resource)
-}
-
-#[rustler::nif(schedule = "DirtyCpu")]
+#[rustler::nif(schedule = "DirtyIo")]
 pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let endpoint = RUNTIME
         .block_on(
@@ -406,8 +337,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
     let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
 
-    let erlang_event_handler_task =
-        Some(RUNTIME.spawn(erlang_msg_event_handler(mpsc_event_receiver_arc, pid_clone)));
+    let env_pid_clone = env.pid();
 
     let state = NodeState::new(
         pid,
@@ -417,42 +347,89 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
         sender,
         mpsc_event_sender,
         mpsc_event_receiver_arc_clone,
-        erlang_event_handler_task,
     );
 
     let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
+
+    let monitor_ref = env.monitor(&resource, &pid);
+
+    let node_addr_short = endpoint.node_id().fmt_short().clone();
+
+    let erlang_event_handler_task =
+        // Some(RUNTIME.spawn(erlang_msg_event_handler(mpsc_event_receiver_arc, env_pid_clone, monitor_ref)));
+        Some(RUNTIME.spawn(async move {
+
+            let mut mpsc_event_receiver = mpsc_event_receiver_arc.write().await;
+
+            let mut msg_env = OwnedEnv::new();
+
+            while let Some(event) = mpsc_event_receiver.recv().await {
+
+                if let Err(e) = msg_env.send_and_clear(&pid, |env| {
+
+                    let terms: Vec<Term> = event.payload.iter().map(|s| s.encode(env)).collect();
+
+                    match terms.len() {
+                        0 => event.atom.encode(env),
+                        1 => (event.atom, terms[0]).encode(env),
+                        2 => (event.atom, terms[0], terms[1]).encode(env),
+                        3 => (event.atom, terms[0], terms[1], terms[2]).encode(env),
+                        _ => (event.atom, terms.to_vec()).encode(env),
+                    }
+                }) {
+                    tracing::warn!(
+                        "⚠️ erlang_msg_event_handler Failed to send erlang message node:{:?}, atom:{:?} e:{:?} pid:{:?}",
+                        node_addr_short,
+                        event.atom,
+                        e,
+                        pid.as_c_arg(),
+                        // env.is_process_alive(pid)
+                    );
+                }
+            }}
+        ));
+
+    {
+        let mut state = resource.0.lock().unwrap();
+        state.erlang_event_handler_task = erlang_event_handler_task;
+    }
+
     Ok(resource)
 }
 
 // Arc::new(RwLock::new(
-async fn erlang_msg_event_handler(
-    receiver_arc: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
-    pid: LocalPid,
-) {
-    // async fn erlang_msg_event_handler(mut receiver: mpsc::Receiver<ErlangMessageEvent>, pid: LocalPid) {
-    let mut receiver = receiver_arc.write().await;
-    let mut msg_env = OwnedEnv::new();
-    while let Some(event) = receiver.recv().await {
-        if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-            let terms: Vec<Term> = event.payload.iter().map(|s| s.encode(env)).collect();
+// async fn erlang_msg_event_handler(
+//     receiver_arc: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
+//     pid: LocalPid,
+//     monitor_ref: Option<Monitor>
+// ) {
+//     // async fn erlang_msg_event_handler(mut receiver: mpsc::Receiver<ErlangMessageEvent>, pid: LocalPid) {
+//     let mut receiver = receiver_arc.write().await;
+//     let mut msg_env = OwnedEnv::new();
 
-            match terms.len() {
-                0 => event.atom.encode(env),
-                1 => (event.atom, terms[0]).encode(env),
-                2 => (event.atom, terms[0], terms[1]).encode(env),
-                3 => (event.atom, terms[0], terms[1], terms[2]).encode(env),
-                _ => (event.atom, terms.to_vec()).encode(env),
-            }
-        }) {
-            tracing::warn!(
-                "⚠️ erlang_msg_event_handler Failed to send erlang message: {:?}",
-                e
-            );
-        }
-    }
-}
+//     while let Some(event) = receiver.recv().await {
 
-#[rustler::nif]
+//         if let Err(e) = msg_env.send_and_clear(&pid, |env| {
+//             let terms: Vec<Term> = event.payload.iter().map(|s| s.encode(env)).collect();
+
+//             match terms.len() {
+//                 0 => event.atom.encode(env),
+//                 1 => (event.atom, terms[0]).encode(env),
+//                 2 => (event.atom, terms[0], terms[1]).encode(env),
+//                 3 => (event.atom, terms[0], terms[1], terms[2]).encode(env),
+//                 _ => (event.atom, terms.to_vec()).encode(env),
+//             }
+//         }) {
+//             tracing::warn!(
+//                 "⚠️ erlang_msg_event_handler Failed to send erlang message: {:?} {:?}",
+//                 e,
+//                 pid.as_c_arg()
+//             );
+//         }
+//     }
+// }
+
+#[rustler::nif(schedule = "DirtyIo")]
 pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String, RustlerError> {
     println!("Create ticket");
 
@@ -533,26 +510,15 @@ pub fn connect_node(
 
     let resource_arc = node_ref.0.clone();
 
+    let (pid, endpoint_clone) = {
+        let state = resource_arc.lock().unwrap();
+        (state.pid, state.endpoint.clone())
+    };
+
+    let pid_clone = env.pid();
+
     RUNTIME.spawn(async move {
-        let pid = {
-            let state = resource_arc.lock().unwrap();
-            state.pid
-        };
-
-        // let msg_env = OwnedEnv::new();
-
-        // tracing::info!(
-        //     "connect_node_async_internal event loop PID: {:?}",
-        //     pid.as_c_arg()
-        // );
-
-        // if let Err(e) =
-        //     msg_env.send_and_clear(&pid, |env| (atoms::ok(), "Hello from rust").encode(env))
-        // {
-        //     tracing::debug!("⚠️ Failed to send unhandled message: {:?}", e);
-        // }
-
-        if let Err(e) = connect_node_async_internal(node_ref_clone, pid, ticket).await {
+        if let Err(e) = connect_node_async_internal(node_ref_clone, pid_clone, ticket).await {
             tracing::error!("❌ Error in async task: {:?}", e);
         }
     });
@@ -572,24 +538,6 @@ async fn connect_node_async_internal(
 
     let Ticket { topic, nodes } = Ticket::from_str(&ticket).context("❌ Failed to parse ticket")?;
 
-    // let (pid_test, test) = {
-    //     let state = resource_arc.lock().unwrap();
-    //     (state.pid.clone, state.endpoint.clone())
-    // };
-
-    // let pid = {
-    //     let state = resource_arc.lock().unwrap();
-    //     state.pid.clone()
-    // };
-
-    // tracing::info!("connect_node_async_internal PID: {:?}", pid.as_c_arg());
-
-    // if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-    //     (atoms::ok(), "Hello from connect_node_async_internal outer").encode(env)
-    // }) {
-    //     tracing::debug!("⚠️ Failed to send unhandled message: {:?}", e);
-    // }
-
     let (endpoint_conn, gossip, node_id, node_id_short, erlang_sender_clone) = {
         let state = resource_arc.lock().unwrap();
         (
@@ -601,20 +549,24 @@ async fn connect_node_async_internal(
         )
     };
 
-    // RUNTIME.spawn(async move {
-    //     // RUNTIME.block_on(
-    //     erlang_sender_clone2.send(ErlangMessageEvent {
-    //         atom: atoms::ok(),
-    //         payload: vec![
-    //             "Test erlang_sender connect_node_async_internal outer".to_string(),
-    //             "Node2".to_string(),
-    //             "Node3".to_string(),
-    //         ],
-    //     });
-    // });
-
     let endpoint_clone = endpoint_conn.clone();
-    // RUNTIME.spawn(log_discovery_stream(endpoint_clone, pid.clone()));
+
+    let node_ref_clone = node_ref.clone();
+
+    {
+        let state = node_ref.0.lock().unwrap(); // Locks the mutex
+        let pid = state.pid; // Clone only what is needed
+        drop(state); // Explicitly drop the lock to avoid Send issues
+
+        // Now that state is unlocked, we can create the task safely
+        // RUNTIME.spawn(log_discovery_stream(node_ref_clone.clone(), pid))
+    };
+
+    // Re-lock the state and store the handle safely
+    {
+        let state = node_ref.0.lock().unwrap();
+        // state.discovery_event_handler_task = Some(discovery_task);
+    }
 
     tracing::debug!(
         "connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}",
@@ -652,17 +604,17 @@ async fn connect_node_async_internal(
     let relay_url: RelayUrl = endpoint_clone.home_relay().initialized().await.unwrap();
 
     if let Err(e) = erlang_sender_clone
-                                .send(ErlangMessageEvent {
-                                    atom: atoms::iroh_node_connected(),
-                                    payload: vec![
-                                        node_id.fmt_short(),
-                                        relay_url.as_str().to_string()
-                                        ],
-                                })
-                                .await
-                            {
-                                tracing::warn!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
-                            }
+        .send(ErlangMessageEvent {
+            atom: atoms::iroh_node_connected(),
+            payload: vec![node_id.fmt_short(), relay_url.as_str().to_string()],
+        })
+        .await
+    {
+        tracing::warn!(
+            "❌ GossipEvent::Joined Failed to send erlang message: {:?}",
+            e
+        );
+    }
 
     // if let Err(e) = msg_env.send_and_clear(&pid, |env| {
     //     (
@@ -678,8 +630,7 @@ async fn connect_node_async_internal(
 
     let erlang_sender_clone_inner = erlang_sender_clone.clone();
 
-    let mut state = node_ref.0.lock().unwrap();
-    state.event_handler_task = Some(RUNTIME.spawn(async move {
+    let event_handler_task = Some(RUNTIME.spawn(async move {
 
         let topic = gossip
             .subscribe_and_join(topic, node_ids)
@@ -808,6 +759,11 @@ async fn connect_node_async_internal(
         // });
     }));
 
+    {
+        let mut state = node_ref.0.lock().unwrap();
+        state.event_handler_task = event_handler_task;
+    }
+
     Ok(())
 }
 
@@ -831,6 +787,29 @@ fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     Ok(peers)
 }
 
+
+
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn cleanup(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+) -> NifResult<()> {
+    let node_ref_clone = node_ref.clone();
+
+    let resource_arc = node_ref.0.clone();
+
+    let (pid, monitor_ref) = {
+        let state = resource_arc.lock().unwrap();
+        (state.pid, state.monitor_ref)
+    };
+
+     if let Some(ref monitor) = monitor_ref {
+        env.demonitor(&node_ref, monitor);
+    }
+    drop(node_ref);
+    Ok(())
+}
+
 // The protocol definition:
 #[derive(Debug, Clone)]
 struct Echo;
@@ -851,32 +830,47 @@ impl ProtocolHandler for Echo {
     }
 }
 
-async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
-    let mut stream = endpoint.discovery_stream();
-    let mut msg_env = OwnedEnv::new();
+// async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
+async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
+    let (endpoint, erlang_sender_clone, mut stream) = {
+        let state = node_ref.0.lock().unwrap(); // Acquire lock
+        (
+            state.endpoint.clone(),
+            state.mpsc_event_sender.clone(),
+            state.endpoint.discovery_stream(),
+        )
+    };
+
+    // let endpoint = state_clone.endpoint.clone();
+    // let erlang_sender_clone = state_clone.mpsc_event_sender.clone();
+
+    // let mut stream = endpoint.discovery_stream();
+    let msg_env = OwnedEnv::new();
 
     while let Some(result) = stream.next().await {
         match result {
             Ok(node_addr) => {
-                match msg_env.send_and_clear(&pid, |env| {
-                    (
-                        atoms::iroh_gossip_node_discovered(),
-                        endpoint.node_id().fmt_short(),
-                        node_addr.node_id().fmt_short(),
-                    )
-                        .encode(env)
-                }) {
-                    Ok(_) => tracing::debug!("✅ Sent device discovery message"),
-                    Err(e) => {
-                        tracing::debug!("⚠️ Failed to send discovery message: {:?}", e)
-                    }
-                }
-
                 tracing::debug!(
                     "🔍 {:?} Discovered Node: {:?}",
                     endpoint.node_id().fmt_short(),
                     node_addr
                 );
+
+                if let Err(e) = erlang_sender_clone
+                    .send(ErlangMessageEvent {
+                        atom: atoms::iroh_gossip_node_discovered(),
+                        payload: vec![
+                            endpoint.node_id().fmt_short(),
+                            node_addr.node_id().fmt_short(),
+                        ],
+                    })
+                    .await
+                {
+                    tracing::warn!(
+                        "❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}",
+                        e
+                    );
+                }
             }
             Err(lagged) => {
                 tracing::warn!(

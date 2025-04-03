@@ -1,6 +1,6 @@
 <!-- livebook:{"app_settings":{"access_type":"public","show_source":true,"slug":"iroh-observer"}} -->
 
-# Graphviz Observer
+# Iroh Graphviz Observer
 
 ```elixir
 Mix.install([
@@ -199,17 +199,104 @@ defmodule SigmaGraph do
 
     const { circular } = graphologyLayout;
 
+    // --- Configuration ---
+    const DIMMED_COLOR = "rgba(200, 200, 200, 0.3)";
+      
+
     export function init(ctx, payload) {
       const container = document.createElement("div");
       container.style.width = "100%";
       container.style.height = "500px";
       ctx.root.appendChild(container);
 
+
+
+      // --- Reducers ---
+      
+      /**
+       * Decides the final attributes for each node based on the hover state.
+       * This function is passed to the Sigma constructor.
+       */
+      const nodeReducer = (nodeId, attributes) => {
+        // Base attributes to potentially modify
+        const newAttributes = { ...attributes };
+      
+        if (hoveredNodeId) {
+          // A node is hovered
+          if (nodeId === hoveredNodeId || hoveredNeighbors.has(nodeId)) {
+            // This node IS the hovered one or a direct neighbor: HIGHLIGHT
+            newAttributes.zIndex = 1;
+            // ** Crucially: DO NOT set 'color' here **
+            // By not setting it, Sigma will use the color from the
+            // original graph data (your peer count color) or the default.
+            // We only remove the potential 'color' override below if needed.
+            if (newAttributes.color === DIMMED_COLOR) {
+               // If it was previously dimmed, remove the override
+               delete newAttributes.color;
+            }
+          } else {
+            // This node is NOT hovered or a neighbor: DIM
+            newAttributes.color = DIMMED_COLOR;
+            newAttributes.zIndex = 0;
+          }
+        } else {
+          // No node is hovered: RESET state for all nodes
+          newAttributes.zIndex = 0;
+          // If the node currently has the dimmed color, remove the override
+          // to revert to its original/default color.
+          if (newAttributes.color === DIMMED_COLOR) {
+             delete newAttributes.color;
+          }
+        }
+        return newAttributes;
+      };
+      
+      /**
+       * Decides the final attributes for each edge based on the hover state.
+       * This function is passed to the Sigma constructor.
+       */
+      const edgeReducer = (edgeId, attributes, sourceId, targetId) => {
+          const newAttributes = { ...attributes };
+      
+          if (hoveredNodeId) {
+              // An edge is highlighted if it connects the hovered node to one of its neighbors
+              // (or connects the hovered node to itself, though less common)
+              const isSourceHovered = sourceId === hoveredNodeId;
+              const isTargetHovered = targetId === hoveredNodeId;
+              const isSourceNeighbor = hoveredNeighbors.has(sourceId);
+              const isTargetNeighbor = hoveredNeighbors.has(targetId);
+      
+              // Highlight if connected *directly* to the hovered node
+              // (Adjust logic slightly if you ONLY want edges *between* hovered and neighbors)
+              if (isSourceHovered || isTargetHovered) {
+                 // Highlight Edge
+                  newAttributes.zIndex = 1;
+                  // ** Crucially: DO NOT set 'color' here **
+                  if (newAttributes.color === DIMMED_COLOR) {
+                      delete newAttributes.color;
+                  }
+              } else {
+                  // Dim Edge
+                  newAttributes.color = DIMMED_COLOR;
+                  newAttributes.zIndex = 0;
+              }
+          } else {
+              // No node hovered: Reset edge state
+              newAttributes.zIndex = 0;
+              if (newAttributes.color === DIMMED_COLOR) {
+                  delete newAttributes.color;
+              }
+          }
+          return newAttributes;
+      };
+
       const graph = new Graph();
       const renderer = new Sigma(graph, container, {
         labelDensity: 0.2,
         labelRenderedSizeThreshold: 10,
         defaultLabelSize: 14,
+        nodeReducer: nodeReducer,
+        edgeReducer: edgeReducer,
         edgeProgramClasses: {
           curved: sigmaEdgeCurve,
         },
@@ -217,6 +304,56 @@ defmodule SigmaGraph do
 
       // Store full labels separately
       const fullLabels = {};
+
+      function placeNodesInMultiRings(centerX, centerY, baseRadius, minSpacing) {
+          const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
+          if (ringNodes.length === 0) return;
+      
+          let rings = [];
+          let nodesPlaced = 0;
+          let currentRadius = baseRadius;
+      
+          function maxNodesForRadius(radius) {
+              let avgNodeSize = ringNodes.reduce((sum, node) => sum + graph.getNodeAttribute(node, "size"), 0) / ringNodes.length;
+              let spacingFactor = avgNodeSize + minSpacing;
+              return Math.max(6, Math.floor((2 * Math.PI * radius) / spacingFactor)); // Ensure at least 6 nodes per ring
+          }
+      
+          // **Distribute Nodes into Multiple Rings Correctly**
+          while (nodesPlaced < ringNodes.length) {
+              let maxNodesInRing = maxNodesForRadius(currentRadius);
+              let nodesInThisRing = Math.min(maxNodesInRing, ringNodes.length - nodesPlaced);
+      
+              let currentRingNodes = ringNodes.slice(nodesPlaced, nodesPlaced + nodesInThisRing);
+              rings.push({ nodes: currentRingNodes, radius: currentRadius });
+      
+              nodesPlaced += nodesInThisRing;
+      
+              // Increase radius for the next ring
+              currentRadius += baseRadius + minSpacing * 4;
+          }
+      
+          // **Place Nodes in Their Respective Rings**
+          rings.forEach(({ nodes, radius }) => {
+              console.log("ring ", radius, nodes.length);
+              placeNodesInRing(centerX, centerY, radius, nodes);
+          });
+      }
+      
+      function placeNodesInRing(centerX, centerY, radius, nodes) {
+          if (nodes.length === 0) return;
+      
+          const angleStep = (2 * Math.PI) / nodes.length;
+      
+          nodes.forEach((node, i) => {
+              const angle = i * angleStep;
+              graph.mergeNodeAttributes(node, {
+                  x: centerX + radius * Math.cos(angle),
+                  y: centerY + radius * Math.sin(angle),
+              });
+          });
+      }
+
 
       function placeNodesInRing(centerX, centerY, radius) {
           const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
@@ -278,9 +415,12 @@ defmodule SigmaGraph do
           graph.addNode(node.id, node);
 
           // placeNodesInRing(centerX, centerY, radius)
-          if(node.layout == 'ring') placeNodesInRing(0, 0, 10); // circular.assign(graph);
+          if(node.layout == 'ring') {
+            // placeNodesInRing(0, 0, 20); // circular.assign(graph);
+            placeNodesInMultiRings(0, 0, 20, 3);
+          }
           // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
-          if(node.layout == 'grid') placeNodesInGrid(20, -10, 4, 1);
+          if(node.layout == 'grid') placeNodesInGrid(-100, -20, 4, 5);
 
         } else {
           console.log("Node " + node.id + " already exists, ignore");
@@ -329,303 +469,73 @@ defmodule SigmaGraph do
       ctx.handleEvent("remove_edge", ({ source, target }) => {
         if (graph.hasEdge(source, target)) {
           graph.dropEdge(source, target);
+          console.log("dropped edge with ", source, target);
+        } else {
+          console.log("no edge with ", source, target);
         }
         renderer.refresh();
       });
 
-      // Show full label on hover
+      
+      // --- External State ---
+      // Holds the ID of the node currently being hovered, or null if none.
+      let hoveredNodeId = null;
+      // Optional: Store neighbors temporarily for performance if graph is large
+      let hoveredNeighbors = new Set();
+      
+      // --- Event Handlers (Now much simpler!) ---
+      
       renderer.on("enterNode", ({ node }) => {
-        graph.setNodeAttribute(node, "label", fullLabels[node]);
+        // Set the hover state
+        hoveredNodeId = node;
+        hoveredNeighbors = new Set(graph.neighbors(node)); // Calculate neighbors on enter
+      
+        // Set the specific label for the hovered node (direct manipulation is fine here)
+        if (fullLabels && fullLabels[node]) { // Check if fullLabels exists and has entry
+            graph.setNodeAttribute(node, "label", fullLabels[node]);
+        }
+      
+        // Trigger reducers to re-evaluate based on the new state
         renderer.refresh();
       });
-
-      // Restore shortened label when mouse leaves
+      
       renderer.on("leaveNode", ({ node }) => {
-        graph.setNodeAttribute(node, "label", formatLabel(fullLabels[node]));
-        renderer.refresh();
+        // Reset the hover state ONLY if leaving the currently hovered node
+        // (Prevents issues if mouse moves quickly between nodes)
+        if (hoveredNodeId === node) {
+            hoveredNodeId = null;
+            hoveredNeighbors = new Set(); // Clear neighbors
+      
+            // Reset the label (remove attribute to revert to default/data label)
+            graph.removeNodeAttribute(node, "label");
+      
+            // Trigger reducers to re-evaluate (will now reset everything)
+            renderer.refresh();
+        }
       });
-    }
+    };
 
     """
   end
 end
 ```
 
-## Process Observer
-
 ```elixir
-defmodule ProcessMonitor do
+defmodule IrohLogger do
   use GenServer
 
-  # Starts the GenServer and initiates tracing
-  def start_link(graph) do
-    case Process.whereis(__MODULE__) do
-      nil ->
-        IO.puts("#{__MODULE__} No Process running")
-        SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-
-      pid when is_pid(pid) ->
-        IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
-        Process.exit(pid, :kill)
-        SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
-        # Wait a moment to ensure the process exits
-        Process.sleep(100)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-        SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-    end
-  end
-
-  @impl true
-  def init(graph) do
-    # Set up tracing for all processes
-    IO.inspect(graph, label: "Init ProcessMonitor")
-    :erlang.trace(:all, true, [:procs])
-    {:ok, %{graph: graph}}
-  end
-
-  defp format_pid(pid) do
-    formatted = inspect(pid)
-    # |> String.replace("#", "") # Original commented out lines
-    # |> String.replace("<", "")
-    # |> String.replace(">", "")
-    # |> String.replace(".", "")
-
-    formatted
-
-    # IO.inspect(formatted, label: "formatted pid") # Original commented out line
-  end
-
-  @impl true
-  def handle_info({:trace, pid, :spawn, new_pid, mfa}, %{graph: graph} = state) do
-    # IO.inspect(graph, label: "Graph debug") # Original commented out line
-    IO.puts("Process #{inspect(new_pid)} spawned by #{inspect(pid)}: #{inspect(mfa)}")
-
-    SigmaGraph.add_node(graph, %{
-      id: "#{format_pid(pid)}",
-      label: "Process #{format_pid(pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
-    })
-
-    SigmaGraph.add_node(graph, %{
-      id: "#{format_pid(new_pid)}",
-      label: "Process #{format_pid(new_pid)}, MFA: #{TraceParser.extract_mfa(mfa)}"
-    })
-
-    # SigmaGraph.add_edge(graph, %{source: format_pid(pid), target: format_pid(new_pid)}) # Original commented out line
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info({:trace, pid, :exit, reason}, %{graph: graph} = state) do
-    IO.puts("Process #{inspect(pid)} exited with reason: #{inspect(reason)}")
-    SigmaGraph.remove_node(graph, "#{format_pid(pid)}")
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info({:trace, pid, :link, linked_pid}, %{graph: graph} = state) do
-    IO.puts("Process #{inspect(pid)} linked to #{inspect(linked_pid)}")
-    SigmaGraph.add_node(graph, %{id: "#{format_pid(pid)}", label: "Process #{format_pid(pid)}"})
-
-    SigmaGraph.add_node(graph, %{
-      id: "#{format_pid(linked_pid)}",
-      label: "Process #{format_pid(linked_pid)}"
-    })
-
-    SigmaGraph.add_edge(graph, %{
-      source: "#{format_pid(pid)}",
-      target: "#{format_pid(linked_pid)}"
-    })
-
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info({:trace, pid, :unlink, unlinked_pid}, %{graph: graph} = state) do
-    IO.puts("Process #{inspect(pid)} unlinked from #{inspect(unlinked_pid)}")
-
-    SigmaGraph.remove_edge(graph, %{
-      source: "#{format_pid(pid)}",
-      target: "#{format_pid(unlinked_pid)}"
-    })
-
-    # {:noreply, state |> Map.put(:graph, graph)} # Original commented out line
-    # Original return value
-    {:noreply, state}
-  end
-
-  def handle_info(msg, state) do
-    IO.puts("#{__MODULE__} catchall #{inspect(msg)}")
-    {:noreply, state}
-  end
-end
-
-defmodule TraceParser do
-  def extract_mfa({mod, fun, args}) when is_atom(mod) and is_atom(fun) and is_list(args) do
-    "#{mod}.#{fun}/#{length(args)}"
-  end
-
-  def extract_mfa({:erlang, :apply, [func, _]}) when is_function(func, 0) do
-    func_info = inspect(func)
-
-    case String.split(func_info, " in ") do
-      [_, mfa] -> mfa
-      _ -> "UnknownFunction"
-    end
-  end
-
-  def extract_mfa(_), do: "UnknownFunction"
-end
-
-defmodule Worker do
-  use GenServer
-
-  def start_link(_) do
-    # Unique name
-    GenServer.start_link(__MODULE__, %{}, name: :erlang.make_ref())
-  end
-
-  def init(_) do
-    # Live for 2-5 seconds
-    lifespan = :rand.uniform(3000) + 2000
-    Process.send_after(self(), :die, lifespan)
-    {:ok, %{}}
-  end
-
-  def handle_info(:die, _state) do
-    IO.puts("Worker #{inspect(self())} exiting")
-    exit(:normal)
-  end
-end
-
-defmodule WorkerSupervisor do
-  use Supervisor
-
-  def start_link(_) do
-    Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
-  end
-
-  def init(:ok) do
-    children = [
-      # Defines a Worker child spec
-      {Worker, []}
-    ]
-
-    Supervisor.init(children, strategy: :simple_one_for_one)
-  end
-end
-
-defmodule WorkerManager do
-  use GenServer
-
-  def start_link(_) do
-    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-  end
-
-  def init(:ok) do
-    # Start workers after a delay
-    Process.send_after(self(), :start_workers, :rand.uniform(5000))
-    {:ok, %{}}
-  end
-
-  def handle_info(:start_workers, state) do
-    # 1 to 10 workers
-    num_workers = :rand.uniform(10)
-
-    for _ <- 1..num_workers do
-      Supervisor.start_child(WorkerSupervisor, [])
-    end
-
-    IO.puts("Spawned #{num_workers} workers")
-
-    # Schedule the next batch
-    Process.send_after(self(), :start_workers, :rand.uniform(5000))
-
-    {:noreply, state}
-  end
-end
-
-defmodule SupervisorExample do
-  def start_link do
-    # Start the Worker Supervisor
-    {:ok, _} = WorkerSupervisor.start_link([])
-
-    # Start the Worker Manager
-    {:ok, _} = WorkerManager.start_link([])
-  end
-end
-```
-
-## Iroh Observer
-
-```elixir
-defmodule IrohObserver do
-  use GenServer
-  alias IrohEx.Native
-
-  @rand_msg_delay 1000
   @node_size 5
-
-  # Starts the GenServer and initiates tracing
-  def start_link(graph) do
-    case Process.whereis(__MODULE__) do
-      nil ->
-        # IO.puts("#{__MODULE__} No Process running")
-        # SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-
-      # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-
-      pid when is_pid(pid) ->
-        # IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
-        Process.exit(pid, :kill)
-        # SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
-        # Wait a moment to ensure the process exits
-        Process.sleep(100)
-        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
-        # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
-    end
+  @impl true
+  def init(config) do
+    {:ok, %{graph: config.graph, datatable: config.datatable, nodes: [], relays: [], peers: %{}, msg_received_cnt: 0, messages: []}}
   end
 
   @impl true
-  def init({graph, datatable}) do
-    {:ok, %{graph: graph, datatable: datatable}}
-  end
-
-  @impl true
-  def handle_call(
-        {:setup_nodes, node_cnt, custom_pid},
-        _from,
-        %{graph: graph} = state
-      ) do
-    pid =
-      case is_nil(custom_pid) do
-        true -> self()
-        false -> custom_pid
-      end
-
-    mothership_node_ref = Native.create_node(pid)
-    ticket = Native.create_ticket(mothership_node_ref)
-
-    # IO.inspect(ticket, label: "Node1 ticket")
-
-    # connect main node
-    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
-    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
-
-    nodes = create_nodes(node_cnt, pid)
-    # IO.inspect(nodes, label: "Node list")
-
-    # draw nodes
-
-    Enum.each(nodes, fn node ->
-      node_addr = Native.gen_node_addr(node)
-
-      SigmaGraph.add_node(
+  def handle_info({ :iroh_node_setup, node_addr }, %{ graph: graph, nodes: nodes } = state ) do
+    
+    IO.puts("Node setup: #{node_addr}")
+    
+    SigmaGraph.add_node(
         graph,
         %{
           id: "#{node_addr}",
@@ -636,200 +546,75 @@ defmodule IrohObserver do
         },
         true
       )
-    end)
+    
+    {:noreply, 
+      state
+      |> Map.put(:nodes, nodes ++ [node_addr])
+    }
+  end
 
-    {:reply, nodes,
-     state
-     |> Map.put(:ticket, ticket)
-     |> Map.put(:mothership_node, mothership_node_ref)
-     |> Map.put(:nodes, nodes)
-     |> Map.put(:peers, %{})}
+
+  @impl true
+  def handle_info({ :iroh_node_connected, node_addr, node_relay }, %{ graph: graph, nodes: nodes, relays: relays } = state ) do
+    
+    IO.puts("Node connected: #{node_addr} #{node_relay}")
+    
+    SigmaGraph.merge_node(
+        graph,
+        %{
+          id: "#{node_addr}",
+          layout: "ring",
+          size: @node_size,
+          color: "grey",
+          label: "#{node_addr}"
+        }
+      )
+
+    SigmaGraph.merge_node(
+        graph,
+        %{
+          id: node_relay,
+          size: @node_size,
+          color: "blue",
+          label: node_relay,
+          x: -15,
+          y: 0,
+        }
+      )
+
+    SigmaGraph.add_edge(
+      graph, 
+      %{
+        source: node_addr,
+        target: node_relay,
+        props: %{ type: "curved", color: "grey" }
+      }
+    )
+    
+    {:noreply, 
+      state
+      |> Map.put(:nodes, nodes ++ [node_addr])
+      |> Map.put(:relays, relays ++ [node_relay])
+      |> update_in([:peers, node_addr], fn 
+        nil -> []
+      end)
+    }
   end
 
   @impl true
-  def handle_call(
-        {:connect_nodes},
-        _from,
-        %{graph: graph, ticket: ticket, mothership_node: _mothership_node, nodes: nodes} = state
-      ) do
-    tasks =
-      Enum.map(nodes, fn n ->
-        # IO.inspect(n, label: "Connect Node ref")
-        node_addr = Native.gen_node_addr(n)
+  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers } = state) do
+    IO.puts("Neighbor up: #{source} #{target}")
 
-        Task.async(fn ->
-          Native.connect_node(n, ticket)
+    new_peers = peers[source] ++ [target]
 
-          SigmaGraph.add_node(
-            graph,
-            %{
-              id: "#{node_addr}",
-              layout: "ring",
-              size: @node_size,
-              color: "grey",
-              label: "#{node_addr}"
-            },
-            true
-          )
-        end)
-      end)
-
-    Enum.each(tasks, &Task.await/1)
-    {:reply, [], state}
-  end
-
-  @impl true
-  def handle_call(
-        {:send_messages, msg_cnt, use_random_node},
-        _from,
-        %{graph: graph, ticket: _ticket, mothership_node: _mothership_node, nodes: nodes} = state
-      ) do
-    no_random_node = Enum.random(nodes)
-
-    msg_sender_receipts =
-      1..msg_cnt
-      |> Enum.map(fn x ->
-        Task.async(fn ->
-          node =
-            if use_random_node do
-              Enum.random(nodes)
-            else
-              no_random_node
-            end
-
-          node_id = Native.gen_node_addr(node)
-
-          rand_msg_delay = :rand.uniform(@rand_msg_delay)
-          Process.sleep(rand_msg_delay)
-
-          msg = "MSG:#{x}"
-          timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
-
-          Native.send_message(node, msg)
-
-          SigmaGraph.add_node(
-            graph,
-            %{id: msg, layout: "grid", size: @node_size, label: msg, color: "grey"},
-            true
-          )
-
-          # add edge to all pending messages
-          target_nodes = nodes -- [node]
-          Enum.each(target_nodes, fn n -> 
-            node_id = Native.gen_node_addr(n)
-            edge = %{source: msg, target: node_id, props: %{ type: "curved", color: "orange" }}
-            #IO.inspect(edge, label: "Msg pending edge")
-            SigmaGraph.add_edge_batched(graph, edge)
-          end)
-
-          SigmaGraph.render(graph)
-
-          receipt = %{
-            sender: node_id,
-            timestamp: timestamp,
-            receipts: []
-          }
-
-          {msg, receipt}
-        end)
-      end)
-      |> Enum.map(&Task.await/1)
-      |> Map.new()
-
-    msg_receipts =
-      msg_sender_receipts
-      |> Map.new(fn {msg, _receipt} -> {msg, []} end)
-
-    # IO.puts("#{inspect(msg_receipts)} Final Receipts")
-    # IO.puts("#{inspect(msg_sender_receipts)} Final Sender Receipts")
-
-    {:reply, msg_receipts,
-     state
-     |> Map.put(:msg_sender_receipts, msg_sender_receipts)
-     |> Map.put(:msg_receipts, msg_receipts)}
-  end
-
-  @impl true
-  def handle_call(
-        :draw_missing,
-        _from,
-        %{graph: graph, nodes: nodes, msg_receipts: msg_receipts, datatable: _datatable} = state
-      ) do
-    node_ids =
-      Enum.map(nodes, fn node_ref ->
-        Native.gen_node_addr(node_ref)
-      end)
-
-    # IO.inspect(node_ids, label: "node ids")
-    # IO.inspect(msg_receipts, label: "receipts")
-
-    data = []
-    # msg_receipts = []
-
-    Enum.each(msg_receipts, fn {msg, receipts} ->
-      # Find missing node IDs
-
-      IO.inspect(receipts, label: "Receipts")
-      missing_nodes = node_ids -- receipts
-
-      IO.inspect(missing_nodes, label: "Missing nodes")
-      # Enum.map(receipts || [], & &1.sender)
-
-      case missing_nodes do
-        [] ->
-          IO.puts("All nodes received #{msg}")
-
-          SigmaGraph.add_node(
-            graph,
-            %{id: msg, layout: "grid", size: @node_size, label: msg, color: "green"},
-            true
-          )
-
-        _ ->
-          SigmaGraph.add_node(
-            graph,
-            %{
-              id: msg,
-              layout: "grid",
-              size: @node_size,
-              label: "Missing nodes: #{Enum.join(missing_nodes, ",")}",
-              color: "red"
-            },
-            true
-          )
-
-          IO.puts("Missing nodes #{Enum.join(missing_nodes, ",")} for #{msg}")
-
-          _data = data ++ [%{msg: msg, missing: Enum.join(missing_nodes, ",")}]
-
-          Enum.each(missing_nodes, fn missing_node ->
-            # IO.puts("Missing node #{missing_node} for #{msg}")
-            SigmaGraph.add_edge(graph, %{source: msg, target: missing_node, props: %{ type: "curved" }})
-          end)
-      end
-    end)
-
-    # Kino.DataTable.update(datatable, data)
-
-    {:reply, [], state}
-  end
-
-  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{graph: graph} = state) do
-    IO.puts("iroh_gossip_neighbor_up #{source} #{target}")
-
-    state =
-      update_in(state.peers, fn peers ->
-        updated = Map.update(peers, source, [target], fn peers -> peers ++ [target] end)
-        updated
-      end)
-
-    peers = Enum.count(state.peers[source])
+    peers_cnt = Enum.count(new_peers)
 
     color =
       cond do
-        peers == 0 -> "grey"
-        peers < 3 -> "orange"
-        peers >= 3 -> "green"
+        peers_cnt == 0 -> "red"
+        peers_cnt == 1 -> "orange"
+        peers_cnt < 3 -> "yellow"
+        peers_cnt >= 3 -> "green"
       end
 
     SigmaGraph.merge_node(
@@ -837,114 +622,229 @@ defmodule IrohObserver do
       %{
         id: source,
         layout: "ring",
-        size: @node_size + peers * 2,
+        size: @node_size + peers_cnt * 2,
         color: color,
-        label: "#{source} P:#{peers}"
+        label: "#{source} P:#{peers_cnt}"
       }
     )
-
-    SigmaGraph.add_edge(graph, %{source: source, target: target})
-
-    {:noreply, state}
-  end
-
-  def handle_info({:iroh_gossip_neighbor_down, source, target}, %{graph: graph} = state) do
-    IO.puts("iroh_gossip_neighbor_down #{source} #{target}")
-
-    state =
-      update_in(state.peers, fn peers ->
-        updated = Map.update(peers, source, [], fn peers -> peers -- [target] end)
-        updated
-      end)
-
-    peers = Enum.count(state.peers[source])
-
-    color =
-      cond do
-        peers == 0 -> "grey"
-        peers < 3 -> "orange"
-        peers >= 3 -> "green"
-      end
-
-    SigmaGraph.merge_node(
-      graph,
+    
+    SigmaGraph.add_edge(
+      graph, 
       %{
-        id: source,
-        layout: "ring",
-        size: @node_size + peers * 2,
-        color: color,
-        label: "#{source} P:#{peers}"
+        source: source,
+        target: target,
+        props: %{ color: "grey", size: 1 }
       }
     )
+    {:noreply, 
+      state
+      |> update_in([:peers, source], fn _ -> new_peers end)
+    }
+  end
 
-    SigmaGraph.remove_edge(graph, %{source: source, target: target})
+  @impl true
+  def handle_info({:iroh_gossip_neighbor_down, source, target}, %{ graph: graph } = state) do
+    IO.puts("Neighbor down: #{source} #{target}")
+    SigmaGraph.remove_edge(
+      graph, 
+      %{
+        source: source,
+        target: target,
+      }
+    )
+    {:noreply, 
+      state
+      |> update_in([:peers, source], fn peers -> peers -- [target] end)
+    }
+  end
 
+  @impl true
+  def handle_info({:iroh_gossip_node_discovered_, source, target}, %{ graph: graph } = state) do
+    SigmaGraph.add_edge(
+      graph, 
+      %{
+        source: source,
+        target: target,
+        props: %{ color: "#ddd" }
+      }
+    )
     {:noreply, state}
   end
 
-  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: _graph} = state) do
-    # SigmaGraph.add_edge(graph, %{source: source, target: target})
-    IO.puts("iroh_gossip_node_discovered #{source} #{target}")
-    {:noreply, state}
-  end
-
-  def handle_info(
-        {:iroh_gossip_message_received, target, msg},
-        %{graph: graph} = state
-      ) do
-    # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
-
-    IO.puts("iroh_gossip_message_received #{target} #{msg}")
-
-    # IO.puts("#{inspect(msg_receipts)} Before update")
-
-    # timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
-
-    # remove pending edge
-    SigmaGraph.remove_edge(graph, %{source: msg, target: target})
-
-    state =
-      update_in(state.msg_receipts, fn msg_receipts ->
-        updated = Map.update(msg_receipts, msg, [target], fn receipts -> receipts ++ [target] end)
-        IO.puts("Updated: #{msg} #{inspect(updated)}")
-        updated
-      end)
-
-    {:noreply, state}
+  @impl true
+  def handle_info({:iroh_gossip_message_received, source, payload}, %{ msg_received_cnt: msg_received_cnt, graph: graph, messages: messages, datatable: datatable } = state) do
+    
+    edge = %{source: payload, target: source}
+    IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
+    SigmaGraph.remove_edge(graph, edge)
+    
+    new_messages = messages ++ [%{source: source, payload: payload}]
+    
+    Kino.DataTable.update(datatable, new_messages)
+  
+    {:noreply, state
+      |> Map.put(:msg_received_cnt, msg_received_cnt + 1)
+      |> Map.put(:messages, new_messages)
+    }
   end
 
   @impl true
   def handle_info(msg, state) do
-    IO.inspect(msg, label: "#{__MODULE__} handle_info catchall")
+    IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
     {:noreply, state}
   end
-
-  def create_nodes(node_count, pid) when is_integer(node_count) and node_count > 0 do
-    1..node_count
-    |> Enum.map(fn _ ->
-      Task.async(fn ->
-        Native.create_node_async(pid)
-      end)
-    end)
-    # Await results
-    |> Enum.map(&Task.await/1)
-    |> Enum.reduce([], fn node_ref, acc ->
-      case node_ref do
-        # Collect valid references
-        ref when is_reference(ref) ->
-          [ref | acc]
-
-        error ->
-          IO.puts("Error creating node: #{inspect(error)}")
-          # Skip errors
-          acc
-      end
-    end)
-    # |> dbg()
-    # Maintain original order
-    |> Enum.reverse()
-  end
 end
+
+
+
+
+defmodule UIGenServer do
+  use GenServer
+  def init( init_state ) do
+
+    graph = init_state.graph
+    datatable = init_state.datatable
+
+    {:ok, logger_pid} = GenServer.start_link(IrohLogger, %{graph: graph, datatable: datatable})
+    
+    # {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
+  
+    { :ok, manager_pid }  = IrohEx.NodeManager.start_link(logger_pid)
+    
+    {:ok, init_state
+      |> Map.put(:graph, graph)
+      |> Map.put(:datatable, datatable)
+      |> Map.put(:logger_pid,  logger_pid)
+      |> Map.put(:manager_pid, manager_pid)
+    }
+  end
+
+  def handle_call({:config, key, value}, _from, state) do    
+    IO.puts("#{__MODULE__} :config #{key} #{value}")
+    {:reply, value, Map.put(state, key, value)}
+  end
+
+  def handle_call(:reset, _from, %{
+    datatable: datatable,
+    graph: graph,
+    manager_pid: manager_pid,
+  } = state) do
+    GenServer.call(manager_pid, :reset)
+  
+    Kino.DataTable.update(datatable, [])
+    SigmaGraph.clear(graph)
+    
+    :erlang.garbage_collect()
+  
+    {:reply, [], state}
+  end
+
+  def handle_call(:start_sim, _from, %{
+    datatable: datatable,
+    graph: graph,
+    num_nodes: num_nodes,
+    delay_ms: delay_ms,
+    manager_pid: manager_pid,
+    logger_pid: logger_pid,
+    #delay_msg_ms: delay_msg_ms
+  } = state) do
+    Kino.DataTable.update(datatable, [])
+    SigmaGraph.clear(graph)
+  
+    GenServer.call(manager_pid, {:create_nodes, num_nodes, logger_pid}, 30_000)
+    # why? 
+    Process.sleep(delay_ms)
+    
+    {:reply, [], state}
+  end  
+
+  def handle_call(:send_messages, _from, %{
+    datatable: _datatable,
+    graph: graph,
+    num_messages: num_messages,
+    use_random: use_random,
+    delay_ms: delay_ms,
+  } = state) do
+    nodes = IrohEx.NodeSupervisor.get_children()
+  
+    # IO.inspect(nodes, label: "Nodes test")
+    send_many_messages(graph, nodes, num_messages, use_random, 100 )
+  
+    Process.sleep(delay_ms)
+  
+    reports = Enum.map(nodes, fn n ->
+      #IO.puts("Process alive? #{Process.alive?(n)}")
+  
+      #IO.puts("node report: #{inspect(n)}")
+      report = GenServer.call(n, :report)
+      #IO.puts("report: #{inspect(report)}")
+      report
+    end)
+  
+    IO.puts("Node reports #{inspect(reports)}" )
+
+    {:reply, [], state}
+  
+  end
+
+
+  def send_many_messages(graph, nodes, msg_cnt, use_random_node, rand_msg_delay \\ 100) do
+
+    no_random_node = Enum.random(nodes)
+
+    stream =
+      Stream.map(1..msg_cnt, fn x ->
+        # Return the *action* to be performed
+        fn ->
+          node = case use_random_node do 
+            true -> Enum.random(nodes)
+            false -> no_random_node
+          end
+          _node_id = GenServer.call(node, :get_node_addr)
+          #Native.gen_node_addr(node)
+          # Sleep *before* the task
+          # Process.sleep(rand_msg_delay)
+
+          msg = "MSG:#{x}"
+
+          #Native.send_message(node, msg)
+          #GenServer.cast(manager_pid, {:send_message, node, msg})
+          # GenServer.cast(node, {:send_message, msg})
+          Process.send_after(node, {:send_message, msg}, :rand.uniform(rand_msg_delay))
+
+          SigmaGraph.add_node(
+            graph,
+            %{id: msg, layout: "grid", size: 5, label: msg, color: "grey"},
+            true
+          )
+
+          recipient_nodes = nodes -- [node]
+
+          Enum.each(recipient_nodes, fn n -> 
+            node_id = GenServer.call(n, :get_node_addr)
+            edge = %{source: msg, target: node_id, props: %{ type: "curved" }}
+            IO.puts("#{__MODULE__} send_message #{msg} edge: #{inspect(edge)}")
+            SigmaGraph.add_edge(graph, edge)  
+          end)
+        end
+      end)
+
+    stream
+    |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
+    # |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
+    |> Enum.to_list()
+
+    Process.sleep(1000)
+    
+  end
+  
+end
+```
+
+```elixir
+graph = SigmaGraph.new()
+# do not show graph yet
+nil
 ```
 
 ## Run stuff
@@ -952,97 +852,89 @@ end
 <!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
-graph = SigmaGraph.new()
+
+# UI Controls
+num_nodes = Kino.Input.number("Number of Nodes", default: 30, min: 3)
+delay_ms = Kino.Input.number("Delay after connect, before sending messages", default: 1000, min: 0)
+delay_msg_ms = Kino.Input.number("Delay msg random", default: 1000, min: 0)
+num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
+use_random = Kino.Input.checkbox("Use Random Sender", default: true)
+setup_button = Kino.Control.button("Setup nodes")
+send_button = Kino.Control.button("Send messages")
+reset_button = Kino.Control.button("Reset")
 
 datatable =
   Kino.DataTable.new(
     [],
-    keys: [:msg, :missing]
+    keys: [:source, :payload]
   )
 
-Kino.Layout.grid([graph, datatable], columns: 1)
-```
+buttons = Kino.Layout.grid([setup_button,
+    send_button,
+    reset_button], columns: 3)
 
-<!-- livebook:{"reevaluate_automatically":true} -->
-
-```elixir
-# UI Controls
-nodes_input = Kino.Input.number("Number of Nodes", default: 10, min: 3)
-
-swarming_delay_input =
-  Kino.Input.number("Delay after connect, before sending messages", default: 1000, min: 0)
-
-messages_input = Kino.Input.number("Number of Messages", default: 12, min: 1)
-random_sender_input = Kino.Input.checkbox("Use Random Sender", default: true)
-start_button = Kino.Control.button("Start Simulation")
-reset_button = Kino.Control.button("Reset")
 # Display Controls
 grid =
   Kino.Layout.grid([
-    nodes_input,
-    swarming_delay_input,
-    messages_input,
-    random_sender_input,
-    start_button,
-    reset_button
+    graph,
+    num_nodes,
+    delay_ms,
+    delay_msg_ms,
+    num_messages,
+    use_random,
+    buttons,
+    datatable
   ])
 
-defmodule IrohLogger do
-  use GenServer
-  @impl true
-  def init(init_arg) do
-    {:ok, init_arg}
-  end
-
-  @impl true
-  def handle_info(msg, state) do
-    IO.puts("Catchall #{inspect(msg)}")
-    {:noreply, state}
-  end
-end
-
 grid
-```
 
-<!-- livebook:{"reevaluate_automatically":true} -->
+```
 
 ```elixir
 
-num_nodes = Kino.Input.read(nodes_input)
-  num_messages = Kino.Input.read(messages_input)
-  use_random = Kino.Input.read(random_sender_input)
-  delay_ms = Kino.Input.read(swarming_delay_input)
+num_nodes_value = Kino.Input.read(num_nodes)
+num_messages_value = Kino.Input.read(num_messages) #Kino.Input.read(num_messages)
+use_random_value = Kino.Input.read(use_random)
+delay_ms_value = Kino.Input.read(delay_ms)
+delay_msg_ms_value = Kino.Input.read(delay_msg_ms)
 
-Kino.listen(reset_button, fn _event -> 
-  SigmaGraph.clear(graph)
+{:ok, ui_pid} = GenServer.start_link(UIGenServer, %{
+  graph: graph,
+  datatable: datatable,
+  num_nodes: num_nodes_value, #Kino.Input.read(num_nodes),
+  num_messages: num_messages_value, #Kino.Input.read(num_messages),
+  use_random: use_random_value, #Kino.Input.read(use_random),
+  delay_ms: delay_ms_value, # Kino.Input.read(delay_ms),
+  delay_msg_ms: delay_msg_ms_value, # Kino.Input.read(delay_msg_ms),
+})
+
+Kino.Control.tagged_stream(
+  num_nodes: num_nodes,
+  num_messages: num_messages,
+  use_random: use_random,
+  delay_ms: delay_ms,
+  delay_msg_ms: delay_msg_ms,
+  setup_button: setup_button,
+  send_button: send_button,
+  reset_button: reset_button
+)
+|> Kino.listen(fn {key, event} ->
+
+  case event.type do
+    :change ->
+      if Map.has_key?(event, :type) and Map.has_key?(event, :value) do
+        IO.puts(":config #{key} #{event.value}")
+        GenServer.call(ui_pid, { :config, key, event.value })
+      end
+    :click ->
+      case key do
+        :setup_button -> GenServer.call(ui_pid, :start_sim, 30_000)
+        :send_button -> GenServer.call(ui_pid, :send_messages, 30_000)
+        :reset_button -> GenServer.call(ui_pid, :reset)
+      end
+  end
+
+  IO.puts("#{key}, #{inspect(event)}")
+  #IO.inspect(event, label: "event")
 end)
-
-Kino.listen(start_button, fn _event ->
-
-  SigmaGraph.clear(graph)
-  {:ok, logger_pid} = GenServer.start_link(IrohLogger, nil)
-  {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
-
-  IO.inspect(%{logger_pid: logger_pid, observer_pid: observer_pid}, label: "Pids")
-
-  # Use "dummy" logger
-  # GenServer.call(observer_pid, {:setup_nodes, num_nodes, logger_pid}, 30_000)
-
-  # Use IrohObserver, pid == nil means self()
-  GenServer.call(observer_pid, {:setup_nodes, num_nodes, nil}, 30_000)
-  # Connect nodes
-  GenServer.call(observer_pid, {:connect_nodes}, 60_000)
-  Process.sleep(delay_ms)
-
-  # Send messages
-  GenServer.call(observer_pid, {:send_messages, num_messages, use_random}, 60_000)
-
-  {:messages, messages} = :erlang.process_info(self(), :messages)
-
-  IO.inspect(messages, label: "Inbox")
-
-  # Final graph update visualizing pending deliveries
-  #GenServer.call(observer_pid, :draw_missing)
-end)
-
 ```

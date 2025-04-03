@@ -57,6 +57,9 @@ defmodule IrohEx.Native do
   @spec connect_node(reference(), binary()) :: {:ok, reference()} | {:error, term()}
   def connect_node(_node, _ticket), do: error()
 
+  @spec cleanup(reference()) :: {:ok, reference()} | {:error, term()}
+  def cleanup(_node), do: error()
+
   @spec generate_secretkey() :: {:ok, binary()} | {:error, term()}
   def generate_secretkey(), do: error()
 

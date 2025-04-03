@@ -5,7 +5,7 @@ defmodule IrohExTest do
 
   @node_cnt 100
   # 10_000
-  @msg_cnt 10_000
+  @msg_cnt 1000
   @rand_msg_delay 50
   @use_random_sender true
   @delay_after_connect 3000
@@ -141,8 +141,8 @@ defmodule IrohExTest do
       end)
 
     stream
-    # |> Task.async_stream(fn action -> action.() end, max_concurrency: @max_send_concurrency)
-    |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
+    |> Task.async_stream(fn action -> action.() end, max_concurrency: @max_send_concurrency)
+    # |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
     |> Enum.to_list()
 
     # IO.inspect(Enum.count(tasks), label: "Tasks")
@@ -184,7 +184,7 @@ defmodule IrohExTest do
   def create_nodes(node_count, pid) when is_integer(node_count) and node_count > 0 do
     1..node_count
     |> Enum.map(fn _ ->
-      Task.async(fn -> Native.create_node_async(pid) end)
+      Task.async(fn -> Native.create_node(pid) end)
     end)
     # Await results
     |> Enum.map(&Task.await/1)
