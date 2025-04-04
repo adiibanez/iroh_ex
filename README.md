@@ -1,5 +1,5 @@
 # IrohEx
-![2000 node iroh swarm](https://livebook.dev/run?url=https://raw.githubusercontent.com/adiibanez/iroh_ex/refs/heads/main/livebooks/swarm.jpg)
+![2000 node iroh swarm](https://raw.githubusercontent.com/adiibanez/iroh_ex/refs/heads/main/livebooks/swarm.jpg)
 
 [![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https://github.com/adiibanez/iroh_ex/blob/main/livebooks/sigmajs.livemd)
 
