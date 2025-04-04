@@ -278,97 +278,75 @@ pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
 
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
+    let env_pid_clone = env.pid();
+    let monitor_pid = pid;
+    let topic_name = TOPIC_NAME.to_string();
 
-    let endpoint = RUNTIME
-        .block_on(
-            Endpoint::builder()
-                // .discovery_local_network()
-                .discovery_n0()
-                .bind(),
-        )
-        .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
+    let (resource, monitor_ref) = RUNTIME.block_on(async move {
+        // --- Start of async logic ---
+        let endpoint = Endpoint::builder()
+            .discovery_n0()
+            .bind()
+            .await
+            .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
 
-    // println!(
-    //     "PID: {:?} Endpoint node id: {:?}",
-    //     pid.as_c_arg(),
-    //     endpoint.node_id()
-    // );
+        let endpoint_clone = endpoint.clone();
+        let mut builder = iroh::protocol::Router::builder(endpoint.clone());
 
-    let endpoint_clone = endpoint.clone();
+        let gossip = Gossip::builder()
+            .spawn(endpoint.clone())
+            .await
+            .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {}", e))))?;
 
-    let mut builder = iroh::protocol::Router::builder(endpoint.clone());
+        builder = builder.accept(GossipALPN, gossip.clone());
+        builder = builder.accept(ALPN, Echo);
 
-    let gossip = RUNTIME
-        .block_on(Gossip::builder().spawn(endpoint.clone()))
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip protocol error: {}", e))))?;
+        let router = builder
+            .spawn()
+            .await
+            .map_err(|e| RustlerError::Term(Box::new(format!("Router error: {}", e))))?;
 
-    builder = builder.accept(GossipALPN, gossip.clone());
-    builder = builder.accept(ALPN, Echo);
+        let router_clone = router.clone();
 
-    let router = RUNTIME
-        .block_on(builder.spawn())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Router error: {}", e))))?;
-
-    let router_clone = router.clone();
-
-    let node_addr = RUNTIME
-        .block_on(router.endpoint().node_addr())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
-
-    let node_ids: Vec<_> = vec![];
-
-    // Subscribe to the topic.
-    // Since the `node_ids` list is empty, we will
-    // subscribe to the topic, but not attempt to
-    // connect to any other nodes.
-
-    let topic = RUNTIME
-        .block_on(async {
-            gossip.subscribe(
-                TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string())),
+        let node_ids = vec![];
+        let topic = gossip
+            .subscribe(
+                TopicId::from_bytes(string_to_32_byte_array(&topic_name)),
                 node_ids,
             )
-        })
-        .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+            // .await
+            .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
 
-    let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
-    let (sender, _receiver) = topic.split();
+        let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
+        let (sender, _receiver) = topic.split();
+        let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
 
-    let pid_clone = pid;
-    let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
-    let mpsc_event_receiver_arc_clone = mpsc_event_receiver_arc.clone();
+        let state = NodeState::new(
+            monitor_pid,
+            endpoint_clone.clone(),
+            router_clone.clone(),
+            gossip.clone(),
+            sender,
+            mpsc_event_sender,
+            mpsc_event_receiver_arc.clone(),
+        );
 
-    let env_pid_clone = env.pid();
+        let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
+        let monitor_ref = env.monitor(&resource, &monitor_pid);
 
-    let state = NodeState::new(
-        pid,
-        endpoint_clone,
-        router_clone,
-        gossip,
-        sender,
-        mpsc_event_sender,
-        mpsc_event_receiver_arc_clone,
-    );
+        // Start task inside async
+        let node_addr_short = endpoint.node_id().fmt_short().clone();
+        let handler_pid = monitor_pid;
+        let handler_monitor = monitor_ref;
 
-    let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
-
-    let monitor_ref = env.monitor(&resource, &pid);
-
-    let node_addr_short = endpoint.node_id().fmt_short().clone();
-
-    let erlang_event_handler_task =
-        // Some(RUNTIME.spawn(erlang_msg_event_handler(mpsc_event_receiver_arc, env_pid_clone, monitor_ref)));
-        Some(RUNTIME.spawn(async move {
-
+        let erlang_event_handler_task = Some(tokio::spawn(async move {
             let mut mpsc_event_receiver = mpsc_event_receiver_arc.write().await;
-
             let mut msg_env = OwnedEnv::new();
 
             while let Some(event) = mpsc_event_receiver.recv().await {
-
-                if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-
-                    let terms: Vec<Term> = event.payload.iter().map(|s| s.encode(env)).collect();
+                if let Err(e) = msg_env.send_and_clear(&handler_pid, |env| {
+                    let terms: Vec<Term> =
+                        event.payload.iter().map(|s| s.encode(env)).collect();
 
                     match terms.len() {
                         0 => event.atom.encode(env),
@@ -379,25 +357,27 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
                     }
                 }) {
                     tracing::warn!(
-                        "⚠️ erlang_msg_event_handler Failed to send erlang message node:{:?}, atom:{:?} e:{:?} pid:{:?}",
+                        "⚠️ erlang_msg_event_handler Failed to send erlang message node:{:?}, atom:{:?}, err:{:?}, pid:{:?}",
                         node_addr_short,
                         event.atom,
                         e,
-                        pid.as_c_arg(),
-                        // env.is_process_alive(pid)
+                        handler_pid.as_c_arg(),
                     );
                 }
-            }}
-        ));
+            }
+        }));
 
-    {
-        let mut state = resource.0.lock().unwrap();
-        state.erlang_event_handler_task = erlang_event_handler_task;
-    }
+        {
+            let mut state = resource.0.lock().unwrap();
+            state.erlang_event_handler_task = erlang_event_handler_task;
+        }
+
+        Ok::<_, RustlerError>((resource, monitor_ref))
+        // --- End of async logic ---
+    })?;
 
     Ok(resource)
 }
-
 // Arc::new(RwLock::new(
 // async fn erlang_msg_event_handler(
 //     receiver_arc: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
