@@ -1,4 +1,4 @@
-<!-- livebook:{"app_settings":{"access_type":"public","show_source":false,"slug":"iroh-observer"}} -->
+<!-- livebook:{"app_settings":{"access_type":"public","slug":"iroh-observer"}} -->
 
 # Iroh Graphviz Observer
 
@@ -196,14 +196,15 @@ defmodule SigmaGraph do
     import graphologyLayout from 'https://cdn.jsdelivr.net/npm/graphology-layout@0.6.1/+esm';
     import FA2Layout from 'https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/+esm';
     import graphOlogyLayoutForce from 'https://cdn.jsdelivr.net/npm/graphology-layout-force@0.2.4/+esm';
+    import graphologyLayoutNoverlap from 'https://cdn.jsdelivr.net/npm/graphology-layout-noverlap@0.4.2/+esm';
     import sigmaEdgeCurve from 'https://cdn.jsdelivr.net/npm/@sigma/edge-curve@3.1.0/+esm';
     import debounce from 'https://cdn.jsdelivr.net/npm/debounce@2.2.0/+esm';
 
     const { circular } = graphologyLayout;
 
     // --- Configuration ---
-    const DIMMED_COLOR = "rgba(200, 200, 200, 0.3)";
-
+    //const DIMMED_COLOR = "rgba(200, 200, 200, 0.3)";
+    const DIMMED_COLOR = "#ddd";
 
     export function init(ctx, payload) {
       const container = document.createElement("div");
@@ -259,36 +260,27 @@ defmodule SigmaGraph do
        */
       const edgeReducer = (edgeId, attributes, sourceId, targetId) => {
           const newAttributes = { ...attributes };
-
+      
           if (hoveredNodeId) {
-              // An edge is highlighted if it connects the hovered node to one of its neighbors
-              // (or connects the hovered node to itself, though less common)
               const isSourceHovered = sourceId === hoveredNodeId;
               const isTargetHovered = targetId === hoveredNodeId;
               const isSourceNeighbor = hoveredNeighbors.has(sourceId);
               const isTargetNeighbor = hoveredNeighbors.has(targetId);
-
-              // Highlight if connected *directly* to the hovered node
-              // (Adjust logic slightly if you ONLY want edges *between* hovered and neighbors)
-              if (isSourceHovered || isTargetHovered) {
-                 // Highlight Edge
-                  newAttributes.zIndex = 1;
-                  // ** Crucially: DO NOT set 'color' here **
-                  if (newAttributes.color === DIMMED_COLOR) {
-                      delete newAttributes.color;
-                  }
+      
+              // Highlight edges that connect the hovered node directly to a neighbor
+              if (isSourceHovered || isTargetHovered || isSourceNeighbor || isTargetNeighbor) {
+                  newAttributes.zIndex = 1; // Bring to front
+                  newAttributes.color = attributes.originalColor || attributes.color; // Restore original color
               } else {
-                  // Dim Edge
-                  newAttributes.color = DIMMED_COLOR;
-                  newAttributes.zIndex = 0;
+                  newAttributes.zIndex = -1; // Send to back, but not invisible
+                  newAttributes.color = DIMMED_COLOR; // Make it less prominent
               }
           } else {
-              // No node hovered: Reset edge state
+              // Restore default edge appearance when no node is hovered
               newAttributes.zIndex = 0;
-              if (newAttributes.color === DIMMED_COLOR) {
-                  delete newAttributes.color;
-              }
+              newAttributes.color = attributes.originalColor || attributes.color; // Keep the original color
           }
+      
           return newAttributes;
       };
 
@@ -304,6 +296,50 @@ defmodule SigmaGraph do
         },
       });
 
+      graphologyLayoutNoverlap
+
+      // const positions = graphologyLayoutNoverlap(graph, {maxIterations: 50});
+  
+      // With settings:
+      /*const positions = graphologyLayoutNoverlap(graph, {
+        maxIterations: 50,
+        settings: {
+          gridSize: 1,
+          ratio: 2
+        }
+      });*/
+
+      //graphologyLayoutNoverlap.assign(graph);
+
+      
+      const sensibleSettings = FA2Layout.inferSettings(graph);
+
+      /*FA2Layout.assign(graph, {
+        iterations: 200, // adjust based on node count
+        settings: {
+          gravity: 0.05, // Lower gravity to avoid clustering
+          scalingRatio: 4.0, // Prevent nodes from getting too close
+          strongGravityMode: false,
+          barnesHutOptimize: true, // Faster computation for large graphs
+          barnesHutTheta: 0.6,
+          adjustSizes: true, // Keeps nodes from overlapping
+          edgeWeightInfluence: 0.1, // Less influence from edges
+          slowDown: 10, // Ensures more gradual movement
+        }
+      });*/
+      
+
+      /* settings: {
+          gravity: 0.1, // Weak gravity to allow movement
+          scalingRatio: 5.0, // Increase spacing between nodes
+          strongGravityMode: false,
+          barnesHutOptimize: true, // Improve speed
+          barnesHutTheta: 0.5,
+          adjustSizes: true, // Prevents overlap by using node size
+          edgeWeightInfluence: 0.2, // Reduce edge attraction force
+          slowDown: 5, // Increase layout stability
+      } */
+
       // Store full labels separately
       const fullLabels = {};
 
@@ -311,14 +347,24 @@ defmodule SigmaGraph do
           const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
           if (ringNodes.length === 0) return;
 
+          console.log("multi rings", ringNodes.length);
+
           let rings = [];
           let nodesPlaced = 0;
           let currentRadius = baseRadius;
 
-          function maxNodesForRadius(radius) {
+          /*function maxNodesForRadius(radius) {
               let avgNodeSize = ringNodes.reduce((sum, node) => sum + graph.getNodeAttribute(node, "size"), 0) / ringNodes.length;
               let spacingFactor = avgNodeSize + minSpacing;
               return Math.max(6, Math.floor((2 * Math.PI * radius) / spacingFactor)); // Ensure at least 6 nodes per ring
+          }*/
+
+          function maxNodesForRadius(radius) {
+              const avgNodeSize = ringNodes.reduce((sum, node) => sum + graph.getNodeAttribute(node, "size"), 0) / ringNodes.length;
+              const spacingFactor = avgNodeSize + minSpacing;
+          
+              // Ensure each ring can fit at least 8-20 nodes to avoid clustering
+              return Math.max(20, Math.floor((2 * Math.PI * radius) / spacingFactor));
           }
 
           // **Distribute Nodes into Multiple Rings Correctly**
@@ -327,13 +373,17 @@ defmodule SigmaGraph do
               let nodesInThisRing = Math.min(maxNodesInRing, ringNodes.length - nodesPlaced);
 
               let currentRingNodes = ringNodes.slice(nodesPlaced, nodesPlaced + nodesInThisRing);
+
+              console.log("multi rings", maxNodesInRing, nodesInThisRing, currentRingNodes);
               rings.push({ nodes: currentRingNodes, radius: currentRadius });
 
               nodesPlaced += nodesInThisRing;
 
               // Increase radius for the next ring
-              currentRadius += baseRadius + minSpacing * 4;
+              currentRadius += baseRadius + minSpacing * 2;
           }
+
+          console.log("multi rings", rings);
 
           // **Place Nodes in Their Respective Rings**
           rings.forEach(({ nodes, radius }) => {
@@ -344,20 +394,22 @@ defmodule SigmaGraph do
 
       function placeNodesInRing(centerX, centerY, radius, nodes) {
           if (nodes.length === 0) return;
-
+      
           const angleStep = (2 * Math.PI) / nodes.length;
-
+      
           nodes.forEach((node, i) => {
               const angle = i * angleStep;
-              graph.mergeNodeAttributes(node, {
-                  x: centerX + radius * Math.cos(angle),
-                  y: centerY + radius * Math.sin(angle),
-              });
+              const x = centerX + radius * Math.cos(angle);
+              const y = centerY + radius * Math.sin(angle);
+      
+              console.log(`Node ${node} -> Ring ${radius}, Angle: ${angle.toFixed(2)}, Pos: (${x.toFixed(2)}, ${y.toFixed(2)})`);
+      
+              graph.mergeNodeAttributes(node, { x, y });
           });
       }
 
 
-      function placeNodesInRing(centerX, centerY, radius) {
+      /*function placeNodesInRing(centerX, centerY, radius) {
           const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
           const angleStep = (2 * Math.PI) / ringNodes.length; // Evenly distribute
 
@@ -368,7 +420,7 @@ defmodule SigmaGraph do
                   y: centerY + radius * Math.sin(angle),
               });
           });
-      }
+    }*/
 
       function placeNodesInGrid(gridStartX, gridStartY, cols, spacing) {
           const gridNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "grid");
@@ -405,7 +457,7 @@ defmodule SigmaGraph do
       });
 
       ctx.handleEvent("add_node", (node) => {
-        console.log("Add node", node);
+        // console.log("Add node", node);
 
         if (node.replace || !graph.hasNode(node.id)) {
           if (node.replace && graph.hasNode(node.id)) {
@@ -422,17 +474,17 @@ defmodule SigmaGraph do
             placeNodesInMultiRings(0, 0, 20, 3);
           }
           // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
-          if(node.layout == 'grid') placeNodesInGrid(-100, -20, 4, 5);
+          if(node.layout == 'grid') placeNodesInGrid(-20, -20, 4, 5);
 
         } else {
-          console.log("Node " + node.id + " already exists, ignore");
+          // console.log("Node " + node.id + " already exists, ignore");
         }
 
         debounce(render, 100);
       });
 
       ctx.handleEvent("merge_node", (node) => {
-        console.log("Merge node", node);
+        // console.log("Merge node", node);
 
         if (graph.hasNode(node.id)) {
           graph.mergeNode(node.id, node);
@@ -471,9 +523,9 @@ defmodule SigmaGraph do
       ctx.handleEvent("remove_edge", ({ source, target }) => {
         if (graph.hasEdge(source, target)) {
           graph.dropEdge(source, target);
-          console.log("dropped edge with ", source, target);
+          //console.log("dropped edge with ", source, target);
         } else {
-          console.log("no edge with ", source, target);
+          // console.log("no edge with ", source, target);
         }
         renderer.refresh();
       });
@@ -526,10 +578,20 @@ end
 defmodule IrohLogger do
   use GenServer
 
-  @node_size 5
   @impl true
   def init(config) do
     {:ok, %{graph: config.graph, datatable: config.datatable, nodes: [], relays: [], peers: %{}, msg_received_cnt: 0, messages: []}}
+  end
+
+  def get_node_size(nodes_cnt) do
+    size =
+      cond do
+        nodes_cnt < 100 -> 5
+        nodes_cnt >= 100 -> 2
+      end
+
+    IO.puts("#{__MODULE__} nodes_cnt: #{nodes_cnt} size: #{size}")
+    size
   end
 
   @impl true
@@ -542,7 +604,7 @@ defmodule IrohLogger do
         %{
           id: "#{node_addr}",
           layout: "ring",
-          size: @node_size,
+          size: get_node_size(Enum.count(nodes)),
           color: "grey",
           label: "#{node_addr}"
         },
@@ -551,7 +613,8 @@ defmodule IrohLogger do
 
     {:noreply,
       state
-      |> Map.put(:nodes, nodes ++ [node_addr])
+      #|> Map.put(:nodes, nodes ++ [node_addr])
+      |> Map.put(:nodes, Enum.uniq([node_addr | nodes]))
     }
   end
 
@@ -566,7 +629,7 @@ defmodule IrohLogger do
         %{
           id: "#{node_addr}",
           layout: "ring",
-          size: @node_size,
+          size: get_node_size(Enum.count(nodes)),
           color: "grey",
           label: "#{node_addr}"
         }
@@ -576,7 +639,7 @@ defmodule IrohLogger do
         graph,
         %{
           id: node_relay,
-          size: @node_size,
+          size: get_node_size(Enum.count(nodes)),
           color: "blue",
           label: node_relay,
           x: -15,
@@ -595,8 +658,8 @@ defmodule IrohLogger do
 
     {:noreply,
       state
-      |> Map.put(:nodes, nodes ++ [node_addr])
-      |> Map.put(:relays, relays ++ [node_relay])
+      |> Map.put(:nodes, Enum.uniq([node_addr | nodes]))
+      |> Map.put(:relays, Enum.uniq([node_relay | relays]))
       |> update_in([:peers, node_addr], fn
         nil -> []
       end)
@@ -604,12 +667,19 @@ defmodule IrohLogger do
   end
 
   @impl true
-  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers } = state) do
+  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
     IO.puts("Neighbor up: #{source} #{target}")
 
     new_peers = peers[source] ++ [target]
 
     peers_cnt = Enum.count(new_peers)
+    nodes_cnt = Enum.count(nodes)
+
+    grow_size =
+      cond do
+        nodes_cnt < 100 -> peers_cnt
+        nodes_cnt >= 100 -> peers_cnt / 2
+      end
 
     color =
       cond do
@@ -624,7 +694,7 @@ defmodule IrohLogger do
       %{
         id: source,
         layout: "ring",
-        size: @node_size + peers_cnt * 2,
+        size: get_node_size(nodes_cnt) + grow_size,
         color: color,
         label: "#{source} P:#{peers_cnt}"
       }
@@ -678,12 +748,11 @@ defmodule IrohLogger do
 
     edge = %{source: payload, target: source}
     IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
-    SigmaGraph.remove_edge(graph, edge)
-
+    Task.async(fn -> SigmaGraph.remove_edge(graph, edge) end)
+    
     new_messages = messages ++ [%{source: source, payload: payload}]
-
-    Kino.DataTable.update(datatable, new_messages)
-
+    Task.async(fn -> Kino.DataTable.update(datatable, new_messages) end)
+    
     {:noreply, state
       |> Map.put(:msg_received_cnt, msg_received_cnt + 1)
       |> Map.put(:messages, new_messages)
@@ -695,9 +764,12 @@ defmodule IrohLogger do
     IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
     {:noreply, state}
   end
+
+  @impl true
+  def handle_call(:reset, _from, %{graph: graph, datatable: datatable} = _state) do
+    {:reply, [], %{graph: graph, datatable: datatable, nodes: [], relays: [], peers: %{}, msg_received_cnt: 0, messages: []}}
+  end
 end
-
-
 
 
 defmodule UIGenServer do
@@ -730,12 +802,16 @@ defmodule UIGenServer do
     datatable: datatable,
     graph: graph,
     manager_pid: manager_pid,
+    logger_pid: logger_pid,
   } = state) do
-    GenServer.call(manager_pid, :reset)
 
     Kino.DataTable.update(datatable, [])
     SigmaGraph.clear(graph)
 
+    GenServer.call(manager_pid, :reset)
+    GenServer.call(logger_pid, :reset)
+
+    
     :erlang.garbage_collect()
 
     {:reply, [], state}
@@ -826,7 +902,7 @@ defmodule UIGenServer do
             node_id = GenServer.call(n, :get_node_addr)
             edge = %{source: msg, target: node_id, props: %{ type: "curved" }}
             IO.puts("#{__MODULE__} send_message #{msg} edge: #{inspect(edge)}")
-            SigmaGraph.add_edge(graph, edge)
+            Task.async(fn -> SigmaGraph.add_edge(graph, edge) end)
           end)
         end
       end)
@@ -860,7 +936,7 @@ num_nodes = Kino.Input.number("Number of Nodes", default: 30, min: 3)
 delay_ms = Kino.Input.number("Delay after connect, before sending messages", default: 1000, min: 0)
 delay_msg_ms = Kino.Input.number("Delay msg random", default: 1000, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
-use_random = Kino.Input.checkbox("Use Random Sender", default: true)
+use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 setup_button = Kino.Control.button("Setup nodes")
 send_button = Kino.Control.button("Send messages")
 reset_button = Kino.Control.button("Reset")
@@ -930,7 +1006,9 @@ Kino.Control.tagged_stream(
       end
     :click ->
       case key do
-        :setup_button -> GenServer.call(ui_pid, :start_sim, 30_000)
+        :setup_button -> 
+          GenServer.call(ui_pid, :reset)
+          GenServer.call(ui_pid, :start_sim, 30_000)
         :send_button -> GenServer.call(ui_pid, :send_messages, 30_000)
         :reset_button -> GenServer.call(ui_pid, :reset)
       end
