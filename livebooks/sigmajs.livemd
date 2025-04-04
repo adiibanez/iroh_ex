@@ -472,7 +472,7 @@ defmodule SigmaGraph do
             placeNodesInMultiRings(0, 0, 20, 3);
           }
           // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
-          if(node.layout == 'grid') placeNodesInGrid(-20, -20, 4, 5);
+          if(node.layout == 'grid') placeNodesInGrid(-100, -20, 4, 5);
 
         } else {
           // console.log("Node " + node.id + " already exists, ignore");
