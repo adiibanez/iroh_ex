@@ -1833,6 +1833,7 @@ dependencies = [
  "chrono",
  "data-encoding",
  "futures-lite",
+ "hickory-resolver",
  "iroh",
  "iroh-gossip",
  "lazy_static",

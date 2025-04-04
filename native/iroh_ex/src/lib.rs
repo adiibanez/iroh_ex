@@ -278,6 +278,7 @@ pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
 
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
+
     let endpoint = RUNTIME
         .block_on(
             Endpoint::builder()

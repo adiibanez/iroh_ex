@@ -1,0 +1,1056 @@
+iroh_ex v0.0.5 (/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex/native/iroh_ex)
+├── anyhow v1.0.97
+├── atty v0.2.14
+│   └── libc v0.2.171
+├── chrono v0.4.40
+│   ├── iana-time-zone v0.1.63
+│   │   └── core-foundation-sys v0.8.7
+│   └── num-traits v0.2.19
+│       [build-dependencies]
+│       └── autocfg v1.4.0
+├── data-encoding v2.8.0
+├── futures-lite v2.6.0
+│   ├── fastrand v2.3.0
+│   ├── futures-core v0.3.31
+│   ├── futures-io v0.3.31
+│   ├── parking v2.2.1
+│   └── pin-project-lite v0.2.16
+├── hickory-resolver v0.25.0-alpha.5
+│   ├── cfg-if v1.0.0
+│   ├── futures-util v0.3.31
+│   │   ├── futures-channel v0.3.31
+│   │   │   ├── futures-core v0.3.31
+│   │   │   └── futures-sink v0.3.31
+│   │   ├── futures-core v0.3.31
+│   │   ├── futures-io v0.3.31
+│   │   ├── futures-macro v0.3.31 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.94
+│   │   │   │   └── unicode-ident v1.0.18
+│   │   │   ├── quote v1.0.40
+│   │   │   │   └── proc-macro2 v1.0.94 (*)
+│   │   │   └── syn v2.0.100
+│   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │       ├── quote v1.0.40 (*)
+│   │   │       └── unicode-ident v1.0.18
+│   │   ├── futures-sink v0.3.31
+│   │   ├── futures-task v0.3.31
+│   │   ├── memchr v2.7.4
+│   │   ├── pin-project-lite v0.2.16
+│   │   ├── pin-utils v0.1.0
+│   │   └── slab v0.4.9
+│   │       [build-dependencies]
+│   │       └── autocfg v1.4.0
+│   ├── hickory-proto v0.25.0-alpha.5
+│   │   ├── async-recursion v1.1.1 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   ├── quote v1.0.40 (*)
+│   │   │   └── syn v2.0.100 (*)
+│   │   ├── async-trait v0.1.88 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   ├── quote v1.0.40 (*)
+│   │   │   └── syn v2.0.100 (*)
+│   │   ├── cfg-if v1.0.0
+│   │   ├── data-encoding v2.8.0
+│   │   ├── enum-as-inner v0.6.1 (proc-macro)
+│   │   │   ├── heck v0.5.0
+│   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   ├── quote v1.0.40 (*)
+│   │   │   └── syn v2.0.100 (*)
+│   │   ├── futures-channel v0.3.31 (*)
+│   │   ├── futures-io v0.3.31
+│   │   ├── futures-util v0.3.31 (*)
+│   │   ├── idna v1.0.3
+│   │   │   ├── idna_adapter v1.2.0
+│   │   │   │   ├── icu_normalizer v1.5.0
+│   │   │   │   │   ├── displaydoc v0.2.5 (proc-macro)
+│   │   │   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   │   │   └── syn v2.0.100 (*)
+│   │   │   │   │   ├── icu_collections v1.5.0
+│   │   │   │   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   │   │   │   ├── yoke v0.7.5
+│   │   │   │   │   │   │   ├── stable_deref_trait v1.2.0
+│   │   │   │   │   │   │   ├── yoke-derive v0.7.5 (proc-macro)
+│   │   │   │   │   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   │   │   │   │   ├── syn v2.0.100 (*)
+│   │   │   │   │   │   │   │   └── synstructure v0.13.1
+│   │   │   │   │   │   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   │   │   │       ├── quote v1.0.40 (*)
+│   │   │   │   │   │   │   │       └── syn v2.0.100 (*)
+│   │   │   │   │   │   │   └── zerofrom v0.1.6
+│   │   │   │   │   │   │       └── zerofrom-derive v0.1.6 (proc-macro)
+│   │   │   │   │   │   │           ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   │   │           ├── quote v1.0.40 (*)
+│   │   │   │   │   │   │           ├── syn v2.0.100 (*)
+│   │   │   │   │   │   │           └── synstructure v0.13.1 (*)
+│   │   │   │   │   │   ├── zerofrom v0.1.6 (*)
+│   │   │   │   │   │   └── zerovec v0.10.4
+│   │   │   │   │   │       ├── yoke v0.7.5 (*)
+│   │   │   │   │   │       ├── zerofrom v0.1.6 (*)
+│   │   │   │   │   │       └── zerovec-derive v0.10.3 (proc-macro)
+│   │   │   │   │   │           ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   │           ├── quote v1.0.40 (*)
+│   │   │   │   │   │           └── syn v2.0.100 (*)
+│   │   │   │   │   ├── icu_normalizer_data v1.5.1
+│   │   │   │   │   ├── icu_properties v1.5.1
+│   │   │   │   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   │   │   │   ├── icu_collections v1.5.0 (*)
+│   │   │   │   │   │   ├── icu_locid_transform v1.5.0
+│   │   │   │   │   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   │   │   │   │   ├── icu_locid v1.5.0
+│   │   │   │   │   │   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   │   │   │   │   │   ├── litemap v0.7.5
+│   │   │   │   │   │   │   │   ├── tinystr v0.7.6
+│   │   │   │   │   │   │   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   │   │   │   │   │   │   └── zerovec v0.10.4 (*)
+│   │   │   │   │   │   │   │   ├── writeable v0.5.5
+│   │   │   │   │   │   │   │   └── zerovec v0.10.4 (*)
+│   │   │   │   │   │   │   ├── icu_locid_transform_data v1.5.1
+│   │   │   │   │   │   │   ├── icu_provider v1.5.0
+│   │   │   │   │   │   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   │   │   │   │   │   ├── icu_locid v1.5.0 (*)
+│   │   │   │   │   │   │   │   ├── icu_provider_macros v1.5.0 (proc-macro)
+│   │   │   │   │   │   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   │   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   │   │   │   │   │   └── syn v2.0.100 (*)
+│   │   │   │   │   │   │   │   ├── stable_deref_trait v1.2.0
+│   │   │   │   │   │   │   │   ├── tinystr v0.7.6 (*)
+│   │   │   │   │   │   │   │   ├── writeable v0.5.5
+│   │   │   │   │   │   │   │   ├── yoke v0.7.5 (*)
+│   │   │   │   │   │   │   │   ├── zerofrom v0.1.6 (*)
+│   │   │   │   │   │   │   │   └── zerovec v0.10.4 (*)
+│   │   │   │   │   │   │   ├── tinystr v0.7.6 (*)
+│   │   │   │   │   │   │   └── zerovec v0.10.4 (*)
+│   │   │   │   │   │   ├── icu_properties_data v1.5.1
+│   │   │   │   │   │   ├── icu_provider v1.5.0 (*)
+│   │   │   │   │   │   ├── tinystr v0.7.6 (*)
+│   │   │   │   │   │   └── zerovec v0.10.4 (*)
+│   │   │   │   │   ├── icu_provider v1.5.0 (*)
+│   │   │   │   │   ├── smallvec v1.14.0
+│   │   │   │   │   ├── utf16_iter v1.0.5
+│   │   │   │   │   ├── utf8_iter v1.0.4
+│   │   │   │   │   ├── write16 v1.0.0
+│   │   │   │   │   └── zerovec v0.10.4 (*)
+│   │   │   │   └── icu_properties v1.5.1 (*)
+│   │   │   ├── smallvec v1.14.0
+│   │   │   └── utf8_iter v1.0.4
+│   │   ├── ipnet v2.11.0
+│   │   ├── once_cell v1.21.3
+│   │   ├── rand v0.9.0
+│   │   │   ├── rand_chacha v0.9.0
+│   │   │   │   ├── ppv-lite86 v0.2.21
+│   │   │   │   │   └── zerocopy v0.8.24
+│   │   │   │   └── rand_core v0.9.3
+│   │   │   │       └── getrandom v0.3.2
+│   │   │   │           ├── cfg-if v1.0.0
+│   │   │   │           └── libc v0.2.171
+│   │   │   ├── rand_core v0.9.3 (*)
+│   │   │   └── zerocopy v0.8.24
+│   │   ├── thiserror v2.0.12
+│   │   │   └── thiserror-impl v2.0.12 (proc-macro)
+│   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │       ├── quote v1.0.40 (*)
+│   │   │       └── syn v2.0.100 (*)
+│   │   ├── tinyvec v1.9.0
+│   │   │   └── tinyvec_macros v0.1.1
+│   │   ├── tokio v1.44.1
+│   │   │   ├── bytes v1.10.1
+│   │   │   │   └── serde v1.0.219
+│   │   │   │       └── serde_derive v1.0.219 (proc-macro)
+│   │   │   │           ├── proc-macro2 v1.0.94 (*)
+│   │   │   │           ├── quote v1.0.40 (*)
+│   │   │   │           └── syn v2.0.100 (*)
+│   │   │   ├── libc v0.2.171
+│   │   │   ├── mio v1.0.3
+│   │   │   │   └── libc v0.2.171
+│   │   │   ├── parking_lot v0.12.3
+│   │   │   │   ├── lock_api v0.4.12
+│   │   │   │   │   └── scopeguard v1.2.0
+│   │   │   │   │   [build-dependencies]
+│   │   │   │   │   └── autocfg v1.4.0
+│   │   │   │   └── parking_lot_core v0.9.10
+│   │   │   │       ├── cfg-if v1.0.0
+│   │   │   │       ├── libc v0.2.171
+│   │   │   │       └── smallvec v1.14.0
+│   │   │   ├── pin-project-lite v0.2.16
+│   │   │   ├── signal-hook-registry v1.4.2
+│   │   │   │   └── libc v0.2.171
+│   │   │   ├── socket2 v0.5.9
+│   │   │   │   └── libc v0.2.171
+│   │   │   └── tokio-macros v2.5.0 (proc-macro)
+│   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │       ├── quote v1.0.40 (*)
+│   │   │       └── syn v2.0.100 (*)
+│   │   ├── tracing v0.1.41
+│   │   │   ├── log v0.4.27
+│   │   │   ├── pin-project-lite v0.2.16
+│   │   │   ├── tracing-attributes v0.1.28 (proc-macro)
+│   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   └── syn v2.0.100 (*)
+│   │   │   └── tracing-core v0.1.33
+│   │   │       └── once_cell v1.21.3
+│   │   └── url v2.5.4
+│   │       ├── form_urlencoded v1.2.1
+│   │       │   └── percent-encoding v2.3.1
+│   │       ├── idna v1.0.3 (*)
+│   │       ├── percent-encoding v2.3.1
+│   │       └── serde v1.0.219 (*)
+│   ├── moka v0.12.10
+│   │   ├── crossbeam-channel v0.5.14
+│   │   │   └── crossbeam-utils v0.8.21
+│   │   ├── crossbeam-epoch v0.9.18
+│   │   │   └── crossbeam-utils v0.8.21
+│   │   ├── crossbeam-utils v0.8.21
+│   │   ├── parking_lot v0.12.3 (*)
+│   │   ├── portable-atomic v1.11.0
+│   │   ├── smallvec v1.14.0
+│   │   ├── tagptr v0.2.0
+│   │   ├── thiserror v1.0.69
+│   │   │   └── thiserror-impl v1.0.69 (proc-macro)
+│   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │       ├── quote v1.0.40 (*)
+│   │   │       └── syn v2.0.100 (*)
+│   │   └── uuid v1.16.0
+│   │       └── getrandom v0.3.2 (*)
+│   ├── once_cell v1.21.3
+│   ├── parking_lot v0.12.3 (*)
+│   ├── rand v0.9.0 (*)
+│   ├── resolv-conf v0.7.1
+│   │   └── hostname v0.4.0
+│   │       ├── cfg-if v1.0.0
+│   │       └── libc v0.2.171
+│   ├── smallvec v1.14.0
+│   ├── thiserror v2.0.12 (*)
+│   ├── tokio v1.44.1 (*)
+│   └── tracing v0.1.41 (*)
+├── iroh v0.34.0
+│   ├── aead v0.5.2
+│   │   ├── bytes v1.10.1 (*)
+│   │   ├── crypto-common v0.1.6
+│   │   │   ├── generic-array v0.14.7
+│   │   │   │   ├── typenum v1.18.0
+│   │   │   │   └── zeroize v1.8.1
+│   │   │   │   [build-dependencies]
+│   │   │   │   └── version_check v0.9.5
+│   │   │   ├── rand_core v0.6.4
+│   │   │   │   └── getrandom v0.2.15
+│   │   │   │       ├── cfg-if v1.0.0
+│   │   │   │       └── libc v0.2.171
+│   │   │   └── typenum v1.18.0
+│   │   └── generic-array v0.14.7 (*)
+│   ├── anyhow v1.0.97
+│   ├── atomic-waker v1.1.2
+│   ├── backon v1.4.1
+│   │   ├── fastrand v2.3.0
+│   │   └── tokio v1.44.1 (*)
+│   ├── bytes v1.10.1 (*)
+│   ├── concurrent-queue v2.5.0
+│   │   └── crossbeam-utils v0.8.21
+│   ├── crypto_box v0.9.1
+│   │   ├── aead v0.5.2 (*)
+│   │   ├── chacha20 v0.9.1
+│   │   │   ├── cfg-if v1.0.0
+│   │   │   └── cipher v0.4.4
+│   │   │       ├── crypto-common v0.1.6 (*)
+│   │   │       ├── inout v0.1.4
+│   │   │       │   └── generic-array v0.14.7 (*)
+│   │   │       └── zeroize v1.8.1
+│   │   ├── crypto_secretbox v0.1.1
+│   │   │   ├── aead v0.5.2 (*)
+│   │   │   ├── chacha20 v0.9.1 (*)
+│   │   │   ├── cipher v0.4.4 (*)
+│   │   │   ├── generic-array v0.14.7 (*)
+│   │   │   ├── poly1305 v0.8.0
+│   │   │   │   ├── opaque-debug v0.3.1
+│   │   │   │   └── universal-hash v0.5.1
+│   │   │   │       ├── crypto-common v0.1.6 (*)
+│   │   │   │       └── subtle v2.6.1
+│   │   │   ├── salsa20 v0.10.2
+│   │   │   │   └── cipher v0.4.4 (*)
+│   │   │   ├── subtle v2.6.1
+│   │   │   └── zeroize v1.8.1
+│   │   ├── curve25519-dalek v4.1.3
+│   │   │   ├── cfg-if v1.0.0
+│   │   │   ├── digest v0.10.7
+│   │   │   │   ├── block-buffer v0.10.4
+│   │   │   │   │   └── generic-array v0.14.7 (*)
+│   │   │   │   ├── crypto-common v0.1.6 (*)
+│   │   │   │   └── subtle v2.6.1
+│   │   │   ├── rand_core v0.6.4 (*)
+│   │   │   ├── serde v1.0.219 (*)
+│   │   │   ├── subtle v2.6.1
+│   │   │   └── zeroize v1.8.1
+│   │   │   [build-dependencies]
+│   │   │   └── rustc_version v0.4.1
+│   │   │       └── semver v1.0.26
+│   │   ├── salsa20 v0.10.2 (*)
+│   │   ├── serdect v0.2.0
+│   │   │   ├── base16ct v0.2.0
+│   │   │   └── serde v1.0.219 (*)
+│   │   ├── subtle v2.6.1
+│   │   └── zeroize v1.8.1
+│   ├── data-encoding v2.8.0
+│   ├── der v0.7.9
+│   │   ├── const-oid v0.9.6
+│   │   ├── der_derive v0.7.3 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   ├── quote v1.0.40 (*)
+│   │   │   └── syn v2.0.100 (*)
+│   │   ├── pem-rfc7468 v0.7.0
+│   │   │   └── base64ct v1.7.3
+│   │   └── zeroize v1.8.1
+│   ├── derive_more v1.0.0
+│   │   └── derive_more-impl v1.0.0 (proc-macro)
+│   │       ├── proc-macro2 v1.0.94 (*)
+│   │       ├── quote v1.0.40 (*)
+│   │       ├── syn v2.0.100 (*)
+│   │       └── unicode-xid v0.2.6
+│   ├── ed25519-dalek v2.1.1
+│   │   ├── curve25519-dalek v4.1.3 (*)
+│   │   ├── ed25519 v2.2.3
+│   │   │   ├── pkcs8 v0.10.2
+│   │   │   │   ├── der v0.7.9 (*)
+│   │   │   │   └── spki v0.7.3
+│   │   │   │       └── der v0.7.9 (*)
+│   │   │   ├── serde v1.0.219 (*)
+│   │   │   └── signature v2.2.0
+│   │   ├── rand_core v0.6.4 (*)
+│   │   ├── serde v1.0.219 (*)
+│   │   ├── sha2 v0.10.8
+│   │   │   ├── cfg-if v1.0.0
+│   │   │   ├── cpufeatures v0.2.17
+│   │   │   │   └── libc v0.2.171
+│   │   │   └── digest v0.10.7 (*)
+│   │   ├── subtle v2.6.1
+│   │   └── zeroize v1.8.1
+│   ├── futures-util v0.3.31 (*)
+│   ├── hickory-resolver v0.25.0-alpha.5 (*)
+│   ├── http v1.3.1
+│   │   ├── bytes v1.10.1 (*)
+│   │   ├── fnv v1.0.7
+│   │   └── itoa v1.0.15
+│   ├── igd-next v0.15.1
+│   │   ├── async-trait v0.1.88 (proc-macro) (*)
+│   │   ├── attohttpc v0.24.1
+│   │   │   ├── http v0.2.12
+│   │   │   │   ├── bytes v1.10.1 (*)
+│   │   │   │   ├── fnv v1.0.7
+│   │   │   │   └── itoa v1.0.15
+│   │   │   ├── log v0.4.27
+│   │   │   └── url v2.5.4 (*)
+│   │   ├── bytes v1.10.1 (*)
+│   │   ├── futures v0.3.31
+│   │   │   ├── futures-channel v0.3.31 (*)
+│   │   │   ├── futures-core v0.3.31
+│   │   │   ├── futures-executor v0.3.31
+│   │   │   │   ├── futures-core v0.3.31
+│   │   │   │   ├── futures-task v0.3.31
+│   │   │   │   └── futures-util v0.3.31 (*)
+│   │   │   ├── futures-io v0.3.31
+│   │   │   ├── futures-sink v0.3.31
+│   │   │   ├── futures-task v0.3.31
+│   │   │   └── futures-util v0.3.31 (*)
+│   │   ├── http v1.3.1 (*)
+│   │   ├── http-body-util v0.1.3
+│   │   │   ├── bytes v1.10.1 (*)
+│   │   │   ├── futures-core v0.3.31
+│   │   │   ├── http v1.3.1 (*)
+│   │   │   ├── http-body v1.0.1
+│   │   │   │   ├── bytes v1.10.1 (*)
+│   │   │   │   └── http v1.3.1 (*)
+│   │   │   └── pin-project-lite v0.2.16
+│   │   ├── hyper v1.6.0
+│   │   │   ├── bytes v1.10.1 (*)
+│   │   │   ├── futures-channel v0.3.31 (*)
+│   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   ├── h2 v0.4.8
+│   │   │   │   ├── atomic-waker v1.1.2
+│   │   │   │   ├── bytes v1.10.1 (*)
+│   │   │   │   ├── fnv v1.0.7
+│   │   │   │   ├── futures-core v0.3.31
+│   │   │   │   ├── futures-sink v0.3.31
+│   │   │   │   ├── http v1.3.1 (*)
+│   │   │   │   ├── indexmap v2.8.0
+│   │   │   │   │   ├── equivalent v1.0.2
+│   │   │   │   │   └── hashbrown v0.15.2
+│   │   │   │   │       ├── allocator-api2 v0.2.21
+│   │   │   │   │       ├── equivalent v1.0.2
+│   │   │   │   │       └── foldhash v0.1.5
+│   │   │   │   ├── slab v0.4.9 (*)
+│   │   │   │   ├── tokio v1.44.1 (*)
+│   │   │   │   ├── tokio-util v0.7.14
+│   │   │   │   │   ├── bytes v1.10.1 (*)
+│   │   │   │   │   ├── futures-core v0.3.31
+│   │   │   │   │   ├── futures-sink v0.3.31
+│   │   │   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   │   │   ├── pin-project-lite v0.2.16
+│   │   │   │   │   └── tokio v1.44.1 (*)
+│   │   │   │   └── tracing v0.1.41 (*)
+│   │   │   ├── http v1.3.1 (*)
+│   │   │   ├── http-body v1.0.1 (*)
+│   │   │   ├── httparse v1.10.1
+│   │   │   ├── httpdate v1.0.3
+│   │   │   ├── itoa v1.0.15
+│   │   │   ├── pin-project-lite v0.2.16
+│   │   │   ├── smallvec v1.14.0
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   └── want v0.3.1
+│   │   │       └── try-lock v0.2.5
+│   │   ├── hyper-util v0.1.11
+│   │   │   ├── bytes v1.10.1 (*)
+│   │   │   ├── futures-channel v0.3.31 (*)
+│   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   ├── http v1.3.1 (*)
+│   │   │   ├── http-body v1.0.1 (*)
+│   │   │   ├── hyper v1.6.0 (*)
+│   │   │   ├── libc v0.2.171
+│   │   │   ├── pin-project-lite v0.2.16
+│   │   │   ├── socket2 v0.5.9 (*)
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   ├── tower-service v0.3.3
+│   │   │   └── tracing v0.1.41 (*)
+│   │   ├── log v0.4.27
+│   │   ├── rand v0.8.5
+│   │   │   ├── libc v0.2.171
+│   │   │   ├── rand_chacha v0.3.1
+│   │   │   │   ├── ppv-lite86 v0.2.21 (*)
+│   │   │   │   └── rand_core v0.6.4 (*)
+│   │   │   └── rand_core v0.6.4 (*)
+│   │   ├── tokio v1.44.1 (*)
+│   │   ├── url v2.5.4 (*)
+│   │   └── xmltree v0.10.3
+│   │       └── xml-rs v0.8.25
+│   ├── iroh-base v0.34.0
+│   │   ├── curve25519-dalek v4.1.3 (*)
+│   │   ├── data-encoding v2.8.0
+│   │   ├── derive_more v1.0.0 (*)
+│   │   ├── ed25519-dalek v2.1.1 (*)
+│   │   ├── rand_core v0.6.4 (*)
+│   │   ├── serde v1.0.219 (*)
+│   │   ├── thiserror v2.0.12 (*)
+│   │   └── url v2.5.4 (*)
+│   ├── iroh-metrics v0.32.0
+│   │   ├── erased_set v0.8.0
+│   │   ├── prometheus-client v0.22.3
+│   │   │   ├── dtoa v1.0.10
+│   │   │   ├── itoa v1.0.15
+│   │   │   ├── parking_lot v0.12.3 (*)
+│   │   │   └── prometheus-client-derive-encode v0.4.2 (proc-macro)
+│   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │       ├── quote v1.0.40 (*)
+│   │   │       └── syn v2.0.100 (*)
+│   │   ├── serde v1.0.219 (*)
+│   │   ├── struct_iterable v0.1.1
+│   │   │   ├── struct_iterable_derive v0.1.0 (proc-macro)
+│   │   │   │   ├── erased-serde v0.3.31
+│   │   │   │   │   └── serde v1.0.219
+│   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   ├── struct_iterable_internal v0.1.1
+│   │   │   │   └── syn v2.0.100 (*)
+│   │   │   └── struct_iterable_internal v0.1.1
+│   │   ├── thiserror v2.0.12 (*)
+│   │   └── tracing v0.1.41 (*)
+│   ├── iroh-net-report v0.34.0
+│   │   ├── anyhow v1.0.97
+│   │   ├── bytes v1.10.1 (*)
+│   │   ├── derive_more v1.0.0 (*)
+│   │   ├── hickory-resolver v0.25.0-alpha.5 (*)
+│   │   ├── iroh-base v0.34.0 (*)
+│   │   ├── iroh-metrics v0.32.0 (*)
+│   │   ├── iroh-quinn v0.13.0
+│   │   │   ├── bytes v1.10.1 (*)
+│   │   │   ├── iroh-quinn-proto v0.13.0
+│   │   │   │   ├── bytes v1.10.1 (*)
+│   │   │   │   ├── rand v0.8.5 (*)
+│   │   │   │   ├── ring v0.17.14
+│   │   │   │   │   ├── cfg-if v1.0.0
+│   │   │   │   │   ├── getrandom v0.2.15 (*)
+│   │   │   │   │   ├── libc v0.2.171
+│   │   │   │   │   └── untrusted v0.9.0
+│   │   │   │   │   [build-dependencies]
+│   │   │   │   │   └── cc v1.2.17
+│   │   │   │   │       └── shlex v1.3.0
+│   │   │   │   ├── rustc-hash v2.1.1
+│   │   │   │   ├── rustls v0.23.25
+│   │   │   │   │   ├── log v0.4.27
+│   │   │   │   │   ├── once_cell v1.21.3
+│   │   │   │   │   ├── ring v0.17.14 (*)
+│   │   │   │   │   ├── rustls-pki-types v1.11.0
+│   │   │   │   │   ├── rustls-webpki v0.103.1
+│   │   │   │   │   │   ├── ring v0.17.14 (*)
+│   │   │   │   │   │   ├── rustls-pki-types v1.11.0
+│   │   │   │   │   │   └── untrusted v0.9.0
+│   │   │   │   │   ├── subtle v2.6.1
+│   │   │   │   │   └── zeroize v1.8.1
+│   │   │   │   ├── rustls-platform-verifier v0.5.1
+│   │   │   │   │   ├── core-foundation v0.10.0
+│   │   │   │   │   │   ├── core-foundation-sys v0.8.7
+│   │   │   │   │   │   └── libc v0.2.171
+│   │   │   │   │   ├── core-foundation-sys v0.8.7
+│   │   │   │   │   ├── log v0.4.27
+│   │   │   │   │   ├── once_cell v1.21.3
+│   │   │   │   │   ├── rustls v0.23.25 (*)
+│   │   │   │   │   ├── security-framework v3.2.0
+│   │   │   │   │   │   ├── bitflags v2.9.0
+│   │   │   │   │   │   ├── core-foundation v0.10.0 (*)
+│   │   │   │   │   │   ├── core-foundation-sys v0.8.7
+│   │   │   │   │   │   ├── libc v0.2.171
+│   │   │   │   │   │   └── security-framework-sys v2.14.0
+│   │   │   │   │   │       ├── core-foundation-sys v0.8.7
+│   │   │   │   │   │       └── libc v0.2.171
+│   │   │   │   │   └── security-framework-sys v2.14.0 (*)
+│   │   │   │   ├── slab v0.4.9 (*)
+│   │   │   │   ├── thiserror v2.0.12 (*)
+│   │   │   │   ├── tinyvec v1.9.0 (*)
+│   │   │   │   └── tracing v0.1.41 (*)
+│   │   │   ├── iroh-quinn-udp v0.5.7
+│   │   │   │   ├── libc v0.2.171
+│   │   │   │   ├── socket2 v0.5.9 (*)
+│   │   │   │   └── tracing v0.1.41 (*)
+│   │   │   │   [build-dependencies]
+│   │   │   │   └── cfg_aliases v0.2.1
+│   │   │   ├── pin-project-lite v0.2.16
+│   │   │   ├── rustc-hash v2.1.1
+│   │   │   ├── rustls v0.23.25 (*)
+│   │   │   ├── socket2 v0.5.9 (*)
+│   │   │   ├── thiserror v2.0.12 (*)
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   └── tracing v0.1.41 (*)
+│   │   │   [build-dependencies]
+│   │   │   └── cfg_aliases v0.2.1
+│   │   ├── iroh-relay v0.34.0
+│   │   │   ├── anyhow v1.0.97
+│   │   │   ├── bytes v1.10.1 (*)
+│   │   │   ├── data-encoding v2.8.0
+│   │   │   ├── derive_more v1.0.0 (*)
+│   │   │   ├── hickory-resolver v0.25.0-alpha.5 (*)
+│   │   │   ├── http v1.3.1 (*)
+│   │   │   ├── http-body-util v0.1.3 (*)
+│   │   │   ├── hyper v1.6.0 (*)
+│   │   │   ├── hyper-util v0.1.11 (*)
+│   │   │   ├── iroh-base v0.34.0 (*)
+│   │   │   ├── iroh-metrics v0.32.0 (*)
+│   │   │   ├── iroh-quinn v0.13.0 (*)
+│   │   │   ├── iroh-quinn-proto v0.13.0 (*)
+│   │   │   ├── lru v0.12.5
+│   │   │   │   └── hashbrown v0.15.2 (*)
+│   │   │   ├── n0-future v0.1.2
+│   │   │   │   ├── derive_more v1.0.0 (*)
+│   │   │   │   ├── futures-buffered v0.2.11
+│   │   │   │   │   ├── cordyceps v0.3.2
+│   │   │   │   │   ├── diatomic-waker v0.2.3
+│   │   │   │   │   ├── futures-core v0.3.31
+│   │   │   │   │   ├── pin-project-lite v0.2.16
+│   │   │   │   │   └── spin v0.9.8
+│   │   │   │   │       └── lock_api v0.4.12 (*)
+│   │   │   │   ├── futures-lite v2.6.0 (*)
+│   │   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   │   ├── tokio v1.44.1 (*)
+│   │   │   │   └── tokio-util v0.7.14 (*)
+│   │   │   │   [build-dependencies]
+│   │   │   │   └── cfg_aliases v0.2.1
+│   │   │   ├── num_enum v0.7.3
+│   │   │   │   └── num_enum_derive v0.7.3 (proc-macro)
+│   │   │   │       ├── proc-macro-crate v3.3.0
+│   │   │   │       │   └── toml_edit v0.22.24
+│   │   │   │       │       ├── indexmap v2.8.0 (*)
+│   │   │   │       │       ├── toml_datetime v0.6.8
+│   │   │   │       │       └── winnow v0.7.4
+│   │   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │   │       ├── quote v1.0.40 (*)
+│   │   │   │       └── syn v2.0.100 (*)
+│   │   │   ├── pin-project v1.1.10
+│   │   │   │   └── pin-project-internal v1.1.10 (proc-macro)
+│   │   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │   │       ├── quote v1.0.40 (*)
+│   │   │   │       └── syn v2.0.100 (*)
+│   │   │   ├── pkarr v2.3.1
+│   │   │   │   ├── bytes v1.10.1 (*)
+│   │   │   │   ├── document-features v0.2.11 (proc-macro)
+│   │   │   │   │   └── litrs v0.4.1
+│   │   │   │   ├── ed25519-dalek v2.1.1 (*)
+│   │   │   │   ├── flume v0.11.1
+│   │   │   │   │   ├── futures-core v0.3.31
+│   │   │   │   │   ├── futures-sink v0.3.31
+│   │   │   │   │   ├── nanorand v0.7.0
+│   │   │   │   │   │   └── getrandom v0.2.15 (*)
+│   │   │   │   │   └── spin v0.9.8 (*)
+│   │   │   │   ├── lru v0.12.5 (*)
+│   │   │   │   ├── self_cell v1.1.0
+│   │   │   │   ├── simple-dns v0.9.3
+│   │   │   │   │   └── bitflags v2.9.0
+│   │   │   │   ├── thiserror v2.0.12 (*)
+│   │   │   │   ├── tracing v0.1.41 (*)
+│   │   │   │   ├── ureq v2.12.1
+│   │   │   │   │   ├── base64 v0.22.1
+│   │   │   │   │   ├── log v0.4.27
+│   │   │   │   │   ├── once_cell v1.21.3
+│   │   │   │   │   ├── rustls v0.23.25 (*)
+│   │   │   │   │   ├── rustls-pki-types v1.11.0
+│   │   │   │   │   ├── url v2.5.4 (*)
+│   │   │   │   │   └── webpki-roots v0.26.8
+│   │   │   │   │       └── rustls-pki-types v1.11.0
+│   │   │   │   └── z32 v1.3.0
+│   │   │   ├── postcard v1.1.1
+│   │   │   │   ├── cobs v0.2.3
+│   │   │   │   ├── postcard-derive v0.1.2 (proc-macro)
+│   │   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   │   └── syn v1.0.109
+│   │   │   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │       ├── quote v1.0.40 (*)
+│   │   │   │   │       └── unicode-ident v1.0.18
+│   │   │   │   └── serde v1.0.219 (*)
+│   │   │   ├── rand v0.8.5 (*)
+│   │   │   ├── reqwest v0.12.15
+│   │   │   │   ├── base64 v0.22.1
+│   │   │   │   ├── bytes v1.10.1 (*)
+│   │   │   │   ├── futures-core v0.3.31
+│   │   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   │   ├── http v1.3.1 (*)
+│   │   │   │   ├── http-body v1.0.1 (*)
+│   │   │   │   ├── http-body-util v0.1.3 (*)
+│   │   │   │   ├── hyper v1.6.0 (*)
+│   │   │   │   ├── hyper-rustls v0.27.5
+│   │   │   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   │   │   ├── http v1.3.1 (*)
+│   │   │   │   │   ├── hyper v1.6.0 (*)
+│   │   │   │   │   ├── hyper-util v0.1.11 (*)
+│   │   │   │   │   ├── rustls v0.23.25 (*)
+│   │   │   │   │   ├── rustls-pki-types v1.11.0
+│   │   │   │   │   ├── tokio v1.44.1 (*)
+│   │   │   │   │   ├── tokio-rustls v0.26.2
+│   │   │   │   │   │   ├── rustls v0.23.25 (*)
+│   │   │   │   │   │   └── tokio v1.44.1 (*)
+│   │   │   │   │   ├── tower-service v0.3.3
+│   │   │   │   │   └── webpki-roots v0.26.8 (*)
+│   │   │   │   ├── hyper-util v0.1.11 (*)
+│   │   │   │   ├── ipnet v2.11.0
+│   │   │   │   ├── log v0.4.27
+│   │   │   │   ├── mime v0.3.17
+│   │   │   │   ├── once_cell v1.21.3
+│   │   │   │   ├── percent-encoding v2.3.1
+│   │   │   │   ├── pin-project-lite v0.2.16
+│   │   │   │   ├── rustls v0.23.25 (*)
+│   │   │   │   ├── rustls-pemfile v2.2.0
+│   │   │   │   │   └── rustls-pki-types v1.11.0
+│   │   │   │   ├── rustls-pki-types v1.11.0
+│   │   │   │   ├── serde v1.0.219 (*)
+│   │   │   │   ├── serde_urlencoded v0.7.1
+│   │   │   │   │   ├── form_urlencoded v1.2.1 (*)
+│   │   │   │   │   ├── itoa v1.0.15
+│   │   │   │   │   ├── ryu v1.0.20
+│   │   │   │   │   └── serde v1.0.219 (*)
+│   │   │   │   ├── sync_wrapper v1.0.2
+│   │   │   │   │   └── futures-core v0.3.31
+│   │   │   │   ├── tokio v1.44.1 (*)
+│   │   │   │   ├── tokio-rustls v0.26.2 (*)
+│   │   │   │   ├── tokio-util v0.7.14 (*)
+│   │   │   │   ├── tower v0.5.2
+│   │   │   │   │   ├── futures-core v0.3.31
+│   │   │   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   │   │   ├── pin-project-lite v0.2.16
+│   │   │   │   │   ├── sync_wrapper v1.0.2 (*)
+│   │   │   │   │   ├── tokio v1.44.1 (*)
+│   │   │   │   │   ├── tower-layer v0.3.3
+│   │   │   │   │   └── tower-service v0.3.3
+│   │   │   │   ├── tower-service v0.3.3
+│   │   │   │   ├── url v2.5.4 (*)
+│   │   │   │   └── webpki-roots v0.26.8 (*)
+│   │   │   ├── rustls v0.23.25 (*)
+│   │   │   ├── rustls-webpki v0.102.8
+│   │   │   │   ├── ring v0.17.14 (*)
+│   │   │   │   ├── rustls-pki-types v1.11.0
+│   │   │   │   └── untrusted v0.9.0
+│   │   │   ├── serde v1.0.219 (*)
+│   │   │   ├── strum v0.26.3
+│   │   │   │   └── strum_macros v0.26.4 (proc-macro)
+│   │   │   │       ├── heck v0.5.0
+│   │   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │   │       ├── quote v1.0.40 (*)
+│   │   │   │       ├── rustversion v1.0.20 (proc-macro)
+│   │   │   │       └── syn v2.0.100 (*)
+│   │   │   ├── stun-rs v0.1.11
+│   │   │   │   ├── base64 v0.22.1
+│   │   │   │   ├── bounded-integer v0.5.8
+│   │   │   │   ├── byteorder v1.5.0
+│   │   │   │   ├── crc v3.2.1
+│   │   │   │   │   └── crc-catalog v2.4.0
+│   │   │   │   ├── enumflags2 v0.7.11
+│   │   │   │   │   └── enumflags2_derive v0.7.11 (proc-macro)
+│   │   │   │   │       ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │       ├── quote v1.0.40 (*)
+│   │   │   │   │       └── syn v2.0.100 (*)
+│   │   │   │   ├── fallible-iterator v0.3.0
+│   │   │   │   ├── hmac-sha1 v0.2.2
+│   │   │   │   │   ├── hmac v0.12.1
+│   │   │   │   │   │   └── digest v0.10.7 (*)
+│   │   │   │   │   └── sha1 v0.10.6
+│   │   │   │   │       ├── cfg-if v1.0.0
+│   │   │   │   │       ├── cpufeatures v0.2.17 (*)
+│   │   │   │   │       └── digest v0.10.7 (*)
+│   │   │   │   ├── hmac-sha256 v1.1.8
+│   │   │   │   ├── hostname-validator v1.1.1
+│   │   │   │   ├── lazy_static v1.5.0
+│   │   │   │   ├── md5 v0.7.0
+│   │   │   │   ├── paste v1.0.15 (proc-macro)
+│   │   │   │   ├── precis-core v0.1.11
+│   │   │   │   │   └── unicode-normalization v0.1.24
+│   │   │   │   │       └── tinyvec v1.9.0 (*)
+│   │   │   │   │   [build-dependencies]
+│   │   │   │   │   ├── precis-tools v0.1.9
+│   │   │   │   │   │   ├── lazy_static v1.5.0
+│   │   │   │   │   │   ├── regex v1.11.1
+│   │   │   │   │   │   │   ├── aho-corasick v1.1.3
+│   │   │   │   │   │   │   │   └── memchr v2.7.4
+│   │   │   │   │   │   │   ├── memchr v2.7.4
+│   │   │   │   │   │   │   ├── regex-automata v0.4.9
+│   │   │   │   │   │   │   │   ├── aho-corasick v1.1.3 (*)
+│   │   │   │   │   │   │   │   ├── memchr v2.7.4
+│   │   │   │   │   │   │   │   └── regex-syntax v0.8.5
+│   │   │   │   │   │   │   └── regex-syntax v0.8.5
+│   │   │   │   │   │   └── ucd-parse v0.1.13
+│   │   │   │   │   │       └── regex-lite v0.1.6
+│   │   │   │   │   └── ucd-parse v0.1.13 (*)
+│   │   │   │   ├── precis-profiles v0.1.12
+│   │   │   │   │   ├── lazy_static v1.5.0
+│   │   │   │   │   ├── precis-core v0.1.11 (*)
+│   │   │   │   │   └── unicode-normalization v0.1.24 (*)
+│   │   │   │   │   [build-dependencies]
+│   │   │   │   │   └── precis-tools v0.1.9 (*)
+│   │   │   │   ├── quoted-string-parser v0.1.0
+│   │   │   │   │   ├── pest v2.8.0
+│   │   │   │   │   │   ├── memchr v2.7.4
+│   │   │   │   │   │   ├── thiserror v2.0.12 (*)
+│   │   │   │   │   │   └── ucd-trie v0.1.7
+│   │   │   │   │   └── pest_derive v2.8.0 (proc-macro)
+│   │   │   │   │       ├── pest v2.8.0 (*)
+│   │   │   │   │       └── pest_generator v2.8.0
+│   │   │   │   │           ├── pest v2.8.0 (*)
+│   │   │   │   │           ├── pest_meta v2.8.0
+│   │   │   │   │           │   ├── once_cell v1.21.3
+│   │   │   │   │           │   └── pest v2.8.0 (*)
+│   │   │   │   │           │   [build-dependencies]
+│   │   │   │   │           │   └── sha2 v0.10.8
+│   │   │   │   │           │       ├── cfg-if v1.0.0
+│   │   │   │   │           │       ├── cpufeatures v0.2.17 (*)
+│   │   │   │   │           │       └── digest v0.10.7
+│   │   │   │   │           │           ├── block-buffer v0.10.4 (*)
+│   │   │   │   │           │           └── crypto-common v0.1.6
+│   │   │   │   │           │               ├── generic-array v0.14.7
+│   │   │   │   │           │               │   └── typenum v1.18.0
+│   │   │   │   │           │               │   [build-dependencies]
+│   │   │   │   │           │               │   └── version_check v0.9.5
+│   │   │   │   │           │               └── typenum v1.18.0
+│   │   │   │   │           ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │           ├── quote v1.0.40 (*)
+│   │   │   │   │           └── syn v2.0.100 (*)
+│   │   │   │   └── rand v0.9.0 (*)
+│   │   │   ├── thiserror v2.0.12 (*)
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   ├── tokio-rustls v0.26.2 (*)
+│   │   │   ├── tokio-tungstenite-wasm v0.4.0
+│   │   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   │   ├── http v1.3.1 (*)
+│   │   │   │   ├── httparse v1.10.1
+│   │   │   │   ├── thiserror v1.0.69 (*)
+│   │   │   │   ├── tokio v1.44.1 (*)
+│   │   │   │   └── tokio-tungstenite v0.24.0
+│   │   │   │       ├── futures-util v0.3.31 (*)
+│   │   │   │       ├── log v0.4.27
+│   │   │   │       ├── tokio v1.44.1 (*)
+│   │   │   │       └── tungstenite v0.24.0
+│   │   │   │           ├── byteorder v1.5.0
+│   │   │   │           ├── bytes v1.10.1 (*)
+│   │   │   │           ├── data-encoding v2.8.0
+│   │   │   │           ├── http v1.3.1 (*)
+│   │   │   │           ├── httparse v1.10.1
+│   │   │   │           ├── log v0.4.27
+│   │   │   │           ├── rand v0.8.5 (*)
+│   │   │   │           ├── sha1 v0.10.6 (*)
+│   │   │   │           ├── thiserror v1.0.69 (*)
+│   │   │   │           └── utf-8 v0.7.6
+│   │   │   ├── tokio-util v0.7.14 (*)
+│   │   │   ├── tracing v0.1.41 (*)
+│   │   │   ├── url v2.5.4 (*)
+│   │   │   ├── webpki-roots v0.26.8 (*)
+│   │   │   └── z32 v1.3.0
+│   │   │   [build-dependencies]
+│   │   │   └── cfg_aliases v0.2.1
+│   │   ├── n0-future v0.1.2 (*)
+│   │   ├── netwatch v0.4.0
+│   │   │   ├── atomic-waker v1.1.2
+│   │   │   ├── bytes v1.10.1 (*)
+│   │   │   ├── iroh-quinn-udp v0.5.7 (*)
+│   │   │   ├── libc v0.2.171
+│   │   │   ├── n0-future v0.1.2 (*)
+│   │   │   ├── netdev v0.31.0
+│   │   │   │   ├── ipnet v2.11.0
+│   │   │   │   ├── libc v0.2.171
+│   │   │   │   └── system-configuration v0.6.1
+│   │   │   │       ├── bitflags v2.9.0
+│   │   │   │       ├── core-foundation v0.9.4
+│   │   │   │       │   ├── core-foundation-sys v0.8.7
+│   │   │   │       │   └── libc v0.2.171
+│   │   │   │       └── system-configuration-sys v0.6.0
+│   │   │   │           ├── core-foundation-sys v0.8.7
+│   │   │   │           └── libc v0.2.171
+│   │   │   ├── socket2 v0.5.9 (*)
+│   │   │   ├── thiserror v2.0.12 (*)
+│   │   │   ├── time v0.3.41
+│   │   │   │   ├── deranged v0.4.1
+│   │   │   │   │   └── powerfmt v0.2.0
+│   │   │   │   ├── itoa v1.0.15
+│   │   │   │   ├── num-conv v0.1.0
+│   │   │   │   ├── powerfmt v0.2.0
+│   │   │   │   ├── time-core v0.1.4
+│   │   │   │   └── time-macros v0.2.22 (proc-macro)
+│   │   │   │       ├── num-conv v0.1.0
+│   │   │   │       └── time-core v0.1.4
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   ├── tokio-util v0.7.14 (*)
+│   │   │   └── tracing v0.1.41 (*)
+│   │   │   [build-dependencies]
+│   │   │   └── cfg_aliases v0.2.1
+│   │   ├── portmapper v0.4.1
+│   │   │   ├── base64 v0.22.1
+│   │   │   ├── bytes v1.10.1 (*)
+│   │   │   ├── derive_more v1.0.0 (*)
+│   │   │   ├── futures-lite v2.6.0 (*)
+│   │   │   ├── futures-util v0.3.31 (*)
+│   │   │   ├── igd-next v0.15.1 (*)
+│   │   │   ├── iroh-metrics v0.32.0 (*)
+│   │   │   ├── libc v0.2.171
+│   │   │   ├── netwatch v0.4.0 (*)
+│   │   │   ├── num_enum v0.7.3 (*)
+│   │   │   ├── rand v0.8.5 (*)
+│   │   │   ├── serde v1.0.219 (*)
+│   │   │   ├── smallvec v1.14.0
+│   │   │   ├── socket2 v0.5.9 (*)
+│   │   │   ├── thiserror v2.0.12 (*)
+│   │   │   ├── time v0.3.41 (*)
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   ├── tokio-util v0.7.14 (*)
+│   │   │   ├── tracing v0.1.41 (*)
+│   │   │   └── url v2.5.4 (*)
+│   │   ├── rand v0.8.5 (*)
+│   │   ├── reqwest v0.12.15 (*)
+│   │   ├── rustls v0.23.25 (*)
+│   │   ├── surge-ping v0.8.2
+│   │   │   ├── hex v0.4.3
+│   │   │   ├── parking_lot v0.12.3 (*)
+│   │   │   ├── pnet_packet v0.34.0
+│   │   │   │   ├── pnet_base v0.34.0
+│   │   │   │   │   └── no-std-net v0.6.0
+│   │   │   │   ├── pnet_macros v0.34.0 (proc-macro)
+│   │   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   │   ├── regex v1.11.1 (*)
+│   │   │   │   │   └── syn v2.0.100 (*)
+│   │   │   │   └── pnet_macros_support v0.34.0
+│   │   │   │       └── pnet_base v0.34.0 (*)
+│   │   │   │   [build-dependencies]
+│   │   │   │   └── glob v0.3.2
+│   │   │   ├── rand v0.9.0 (*)
+│   │   │   ├── socket2 v0.5.9 (*)
+│   │   │   ├── thiserror v1.0.69 (*)
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   └── tracing v0.1.41 (*)
+│   │   ├── thiserror v2.0.12 (*)
+│   │   ├── tokio v1.44.1 (*)
+│   │   ├── tokio-util v0.7.14 (*)
+│   │   ├── tracing v0.1.41 (*)
+│   │   └── url v2.5.4 (*)
+│   │   [build-dependencies]
+│   │   └── cfg_aliases v0.2.1
+│   ├── iroh-quinn v0.13.0 (*)
+│   ├── iroh-quinn-proto v0.13.0 (*)
+│   ├── iroh-quinn-udp v0.5.7 (*)
+│   ├── iroh-relay v0.34.0 (*)
+│   ├── n0-future v0.1.2 (*)
+│   ├── netdev v0.31.0 (*)
+│   ├── netwatch v0.4.0 (*)
+│   ├── pin-project v1.1.10 (*)
+│   ├── pkarr v2.3.1 (*)
+│   ├── portmapper v0.4.1 (*)
+│   ├── rand v0.8.5 (*)
+│   ├── rcgen v0.13.2
+│   │   ├── pem v3.0.5
+│   │   │   └── base64 v0.22.1
+│   │   ├── ring v0.17.14 (*)
+│   │   ├── rustls-pki-types v1.11.0
+│   │   ├── time v0.3.41 (*)
+│   │   └── yasna v0.5.2
+│   │       └── time v0.3.41 (*)
+│   ├── reqwest v0.12.15 (*)
+│   ├── ring v0.17.14 (*)
+│   ├── rustls v0.23.25 (*)
+│   ├── rustls-webpki v0.102.8 (*)
+│   ├── serde v1.0.219 (*)
+│   ├── smallvec v1.14.0
+│   ├── strum v0.26.3 (*)
+│   ├── stun-rs v0.1.11 (*)
+│   ├── swarm-discovery v0.3.0-alpha.2
+│   │   ├── acto v0.7.2
+│   │   │   ├── parking_lot v0.12.3 (*)
+│   │   │   ├── pin-project-lite v0.2.16
+│   │   │   ├── smol_str v0.1.24
+│   │   │   ├── tokio v1.44.1 (*)
+│   │   │   └── tracing v0.1.41 (*)
+│   │   │   [build-dependencies]
+│   │   │   └── rustc_version v0.4.1 (*)
+│   │   ├── anyhow v1.0.97
+│   │   ├── hickory-proto v0.25.0-alpha.5 (*)
+│   │   ├── rand v0.8.5 (*)
+│   │   ├── socket2 v0.5.9 (*)
+│   │   ├── tokio v1.44.1 (*)
+│   │   └── tracing v0.1.41 (*)
+│   ├── thiserror v2.0.12 (*)
+│   ├── tokio v1.44.1 (*)
+│   ├── tokio-stream v0.1.17
+│   │   ├── futures-core v0.3.31
+│   │   ├── pin-project-lite v0.2.16
+│   │   ├── tokio v1.44.1 (*)
+│   │   └── tokio-util v0.7.14 (*)
+│   ├── tokio-util v0.7.14 (*)
+│   ├── tracing v0.1.41 (*)
+│   ├── url v2.5.4 (*)
+│   ├── webpki-roots v0.26.8 (*)
+│   ├── x509-parser v0.16.0
+│   │   ├── asn1-rs v0.6.2
+│   │   │   ├── asn1-rs-derive v0.5.1 (proc-macro)
+│   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   ├── syn v2.0.100 (*)
+│   │   │   │   └── synstructure v0.13.1 (*)
+│   │   │   ├── asn1-rs-impl v0.2.0 (proc-macro)
+│   │   │   │   ├── proc-macro2 v1.0.94 (*)
+│   │   │   │   ├── quote v1.0.40 (*)
+│   │   │   │   └── syn v2.0.100 (*)
+│   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   ├── nom v7.1.3
+│   │   │   │   ├── memchr v2.7.4
+│   │   │   │   └── minimal-lexical v0.2.1
+│   │   │   ├── num-traits v0.2.19 (*)
+│   │   │   ├── rusticata-macros v4.1.0
+│   │   │   │   └── nom v7.1.3 (*)
+│   │   │   ├── thiserror v1.0.69 (*)
+│   │   │   └── time v0.3.41 (*)
+│   │   ├── data-encoding v2.8.0
+│   │   ├── der-parser v9.0.0
+│   │   │   ├── asn1-rs v0.6.2 (*)
+│   │   │   ├── displaydoc v0.2.5 (proc-macro) (*)
+│   │   │   ├── nom v7.1.3 (*)
+│   │   │   ├── num-bigint v0.4.6
+│   │   │   │   ├── num-integer v0.1.46
+│   │   │   │   │   └── num-traits v0.2.19 (*)
+│   │   │   │   └── num-traits v0.2.19 (*)
+│   │   │   ├── num-traits v0.2.19 (*)
+│   │   │   └── rusticata-macros v4.1.0 (*)
+│   │   ├── lazy_static v1.5.0
+│   │   ├── nom v7.1.3 (*)
+│   │   ├── oid-registry v0.7.1
+│   │   │   └── asn1-rs v0.6.2 (*)
+│   │   ├── rusticata-macros v4.1.0 (*)
+│   │   ├── thiserror v1.0.69 (*)
+│   │   └── time v0.3.41 (*)
+│   └── z32 v1.3.0
+│   [build-dependencies]
+│   └── cfg_aliases v0.2.1
+├── iroh-gossip v0.34.1
+│   ├── anyhow v1.0.97
+│   ├── async-channel v2.3.1
+│   │   ├── concurrent-queue v2.5.0 (*)
+│   │   ├── event-listener-strategy v0.5.4
+│   │   │   ├── event-listener v5.4.0
+│   │   │   │   ├── concurrent-queue v2.5.0 (*)
+│   │   │   │   ├── parking v2.2.1
+│   │   │   │   └── pin-project-lite v0.2.16
+│   │   │   └── pin-project-lite v0.2.16
+│   │   ├── futures-core v0.3.31
+│   │   └── pin-project-lite v0.2.16
+│   ├── bytes v1.10.1 (*)
+│   ├── derive_more v1.0.0 (*)
+│   ├── ed25519-dalek v2.1.1 (*)
+│   ├── futures-concurrency v7.6.3
+│   │   ├── fixedbitset v0.5.7
+│   │   ├── futures-buffered v0.2.11 (*)
+│   │   ├── futures-core v0.3.31
+│   │   ├── futures-lite v2.6.0 (*)
+│   │   ├── pin-project v1.1.10 (*)
+│   │   ├── slab v0.4.9 (*)
+│   │   └── smallvec v1.14.0
+│   ├── futures-lite v2.6.0 (*)
+│   ├── futures-util v0.3.31 (*)
+│   ├── hex v0.4.3
+│   ├── indexmap v2.8.0 (*)
+│   ├── iroh v0.34.0 (*)
+│   ├── iroh-blake3 v1.4.5
+│   │   ├── arrayref v0.3.9
+│   │   ├── arrayvec v0.7.6
+│   │   ├── cfg-if v1.0.0
+│   │   └── constant_time_eq v0.3.1
+│   │   [build-dependencies]
+│   │   └── cc v1.2.17 (*)
+│   ├── iroh-metrics v0.32.0 (*)
+│   ├── n0-future v0.1.2 (*)
+│   ├── postcard v1.1.1 (*)
+│   ├── rand v0.8.5 (*)
+│   ├── rand_core v0.6.4 (*)
+│   ├── serde v1.0.219 (*)
+│   ├── serde-error v0.1.3
+│   │   └── serde v1.0.219 (*)
+│   ├── thiserror v2.0.12 (*)
+│   ├── tokio v1.44.1 (*)
+│   ├── tokio-util v0.7.14 (*)
+│   └── tracing v0.1.41 (*)
+├── lazy_static v1.5.0
+├── n0-future v0.1.2 (*)
+├── once_cell v1.21.3
+├── rand v0.8.5 (*)
+├── rustler v0.36.1 (https://github.com/filmor/rustler.git?rev=17740a6dc39c79e47e94dd5e59914d30777a0131#17740a6d)
+│   ├── inventory v0.3.20
+│   ├── libloading v0.8.6
+│   │   └── cfg-if v1.0.0
+│   └── rustler_codegen v0.36.1 (proc-macro) (https://github.com/filmor/rustler.git?rev=17740a6dc39c79e47e94dd5e59914d30777a0131#17740a6d)
+│       ├── heck v0.5.0
+│       ├── inventory v0.3.20
+│       ├── proc-macro2 v1.0.94 (*)
+│       ├── quote v1.0.40 (*)
+│       └── syn v2.0.100 (*)
+│   [build-dependencies]
+│   └── regex-lite v0.1.6
+├── serde v1.0.219 (*)
+├── serde_json v1.0.140
+│   ├── itoa v1.0.15
+│   ├── memchr v2.7.4
+│   ├── ryu v1.0.20
+│   └── serde v1.0.219 (*)
+├── tokio v1.44.1 (*)
+├── tracing v0.1.41 (*)
+└── tracing-subscriber v0.3.19
+    ├── matchers v0.1.0
+    │   └── regex-automata v0.1.10
+    │       └── regex-syntax v0.6.29
+    ├── nu-ansi-term v0.46.0
+    │   └── overload v0.1.1
+    ├── once_cell v1.21.3
+    ├── regex v1.11.1
+    │   ├── regex-automata v0.4.9
+    │   │   └── regex-syntax v0.8.5
+    │   └── regex-syntax v0.8.5
+    ├── sharded-slab v0.1.7
+    │   └── lazy_static v1.5.0
+    ├── smallvec v1.14.0
+    ├── thread_local v1.1.8
+    │   ├── cfg-if v1.0.0
+    │   └── once_cell v1.21.3
+    ├── tracing v0.1.41 (*)
+    ├── tracing-core v0.1.33 (*)
+    └── tracing-log v0.2.0
+        ├── log v0.4.27
+        ├── once_cell v1.21.3
+        └── tracing-core v0.1.33 (*)
