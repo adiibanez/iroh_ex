@@ -1,4 +1,4 @@
-<!-- livebook:{"app_settings":{"access_type":"public","show_source":true,"slug":"iroh-observer"}} -->
+<!-- livebook:{"app_settings":{"access_type":"public","show_source":false,"slug":"iroh-observer"}} -->
 
 # Iroh Graphviz Observer
 
