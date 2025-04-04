@@ -6,6 +6,8 @@
 Mix.install([
   {:kino, "~> 0.15.3"},
   {:iroh_ex, "~> 0.0.5"},
+  # {:iroh_ex,
+  # path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -201,7 +203,7 @@ defmodule SigmaGraph do
 
     // --- Configuration ---
     const DIMMED_COLOR = "rgba(200, 200, 200, 0.3)";
-      
+
 
     export function init(ctx, payload) {
       const container = document.createElement("div");
@@ -212,7 +214,7 @@ defmodule SigmaGraph do
 
 
       // --- Reducers ---
-      
+
       /**
        * Decides the final attributes for each node based on the hover state.
        * This function is passed to the Sigma constructor.
@@ -220,7 +222,7 @@ defmodule SigmaGraph do
       const nodeReducer = (nodeId, attributes) => {
         // Base attributes to potentially modify
         const newAttributes = { ...attributes };
-      
+
         if (hoveredNodeId) {
           // A node is hovered
           if (nodeId === hoveredNodeId || hoveredNeighbors.has(nodeId)) {
@@ -250,14 +252,14 @@ defmodule SigmaGraph do
         }
         return newAttributes;
       };
-      
+
       /**
        * Decides the final attributes for each edge based on the hover state.
        * This function is passed to the Sigma constructor.
        */
       const edgeReducer = (edgeId, attributes, sourceId, targetId) => {
           const newAttributes = { ...attributes };
-      
+
           if (hoveredNodeId) {
               // An edge is highlighted if it connects the hovered node to one of its neighbors
               // (or connects the hovered node to itself, though less common)
@@ -265,7 +267,7 @@ defmodule SigmaGraph do
               const isTargetHovered = targetId === hoveredNodeId;
               const isSourceNeighbor = hoveredNeighbors.has(sourceId);
               const isTargetNeighbor = hoveredNeighbors.has(targetId);
-      
+
               // Highlight if connected *directly* to the hovered node
               // (Adjust logic slightly if you ONLY want edges *between* hovered and neighbors)
               if (isSourceHovered || isTargetHovered) {
@@ -308,43 +310,43 @@ defmodule SigmaGraph do
       function placeNodesInMultiRings(centerX, centerY, baseRadius, minSpacing) {
           const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
           if (ringNodes.length === 0) return;
-      
+
           let rings = [];
           let nodesPlaced = 0;
           let currentRadius = baseRadius;
-      
+
           function maxNodesForRadius(radius) {
               let avgNodeSize = ringNodes.reduce((sum, node) => sum + graph.getNodeAttribute(node, "size"), 0) / ringNodes.length;
               let spacingFactor = avgNodeSize + minSpacing;
               return Math.max(6, Math.floor((2 * Math.PI * radius) / spacingFactor)); // Ensure at least 6 nodes per ring
           }
-      
+
           // **Distribute Nodes into Multiple Rings Correctly**
           while (nodesPlaced < ringNodes.length) {
               let maxNodesInRing = maxNodesForRadius(currentRadius);
               let nodesInThisRing = Math.min(maxNodesInRing, ringNodes.length - nodesPlaced);
-      
+
               let currentRingNodes = ringNodes.slice(nodesPlaced, nodesPlaced + nodesInThisRing);
               rings.push({ nodes: currentRingNodes, radius: currentRadius });
-      
+
               nodesPlaced += nodesInThisRing;
-      
+
               // Increase radius for the next ring
               currentRadius += baseRadius + minSpacing * 4;
           }
-      
+
           // **Place Nodes in Their Respective Rings**
           rings.forEach(({ nodes, radius }) => {
               console.log("ring ", radius, nodes.length);
               placeNodesInRing(centerX, centerY, radius, nodes);
           });
       }
-      
+
       function placeNodesInRing(centerX, centerY, radius, nodes) {
           if (nodes.length === 0) return;
-      
+
           const angleStep = (2 * Math.PI) / nodes.length;
-      
+
           nodes.forEach((node, i) => {
               const angle = i * angleStep;
               graph.mergeNodeAttributes(node, {
@@ -452,7 +454,7 @@ defmodule SigmaGraph do
         if (graph.hasNode(source) && graph.hasNode(target)) {
           if( graph.hasEdge(source, target) ) graph.dropEdge(source, target);
           graph.addEdge(source, target, props);
-        } 
+        }
         debounce(render, 100);
       });
 
@@ -476,39 +478,39 @@ defmodule SigmaGraph do
         renderer.refresh();
       });
 
-      
+
       // --- External State ---
       // Holds the ID of the node currently being hovered, or null if none.
       let hoveredNodeId = null;
       // Optional: Store neighbors temporarily for performance if graph is large
       let hoveredNeighbors = new Set();
-      
+
       // --- Event Handlers (Now much simpler!) ---
-      
+
       renderer.on("enterNode", ({ node }) => {
         // Set the hover state
         hoveredNodeId = node;
         hoveredNeighbors = new Set(graph.neighbors(node)); // Calculate neighbors on enter
-      
+
         // Set the specific label for the hovered node (direct manipulation is fine here)
         if (fullLabels && fullLabels[node]) { // Check if fullLabels exists and has entry
             graph.setNodeAttribute(node, "label", fullLabels[node]);
         }
-      
+
         // Trigger reducers to re-evaluate based on the new state
         renderer.refresh();
       });
-      
+
       renderer.on("leaveNode", ({ node }) => {
         // Reset the hover state ONLY if leaving the currently hovered node
         // (Prevents issues if mouse moves quickly between nodes)
         if (hoveredNodeId === node) {
             hoveredNodeId = null;
             hoveredNeighbors = new Set(); // Clear neighbors
-      
+
             // Reset the label (remove attribute to revert to default/data label)
             graph.removeNodeAttribute(node, "label");
-      
+
             // Trigger reducers to re-evaluate (will now reset everything)
             renderer.refresh();
         }
@@ -532,9 +534,9 @@ defmodule IrohLogger do
 
   @impl true
   def handle_info({ :iroh_node_setup, node_addr }, %{ graph: graph, nodes: nodes } = state ) do
-    
+
     IO.puts("Node setup: #{node_addr}")
-    
+
     SigmaGraph.add_node(
         graph,
         %{
@@ -546,8 +548,8 @@ defmodule IrohLogger do
         },
         true
       )
-    
-    {:noreply, 
+
+    {:noreply,
       state
       |> Map.put(:nodes, nodes ++ [node_addr])
     }
@@ -556,9 +558,9 @@ defmodule IrohLogger do
 
   @impl true
   def handle_info({ :iroh_node_connected, node_addr, node_relay }, %{ graph: graph, nodes: nodes, relays: relays } = state ) do
-    
+
     IO.puts("Node connected: #{node_addr} #{node_relay}")
-    
+
     SigmaGraph.merge_node(
         graph,
         %{
@@ -583,19 +585,19 @@ defmodule IrohLogger do
       )
 
     SigmaGraph.add_edge(
-      graph, 
+      graph,
       %{
         source: node_addr,
         target: node_relay,
         props: %{ type: "curved", color: "grey" }
       }
     )
-    
-    {:noreply, 
+
+    {:noreply,
       state
       |> Map.put(:nodes, nodes ++ [node_addr])
       |> Map.put(:relays, relays ++ [node_relay])
-      |> update_in([:peers, node_addr], fn 
+      |> update_in([:peers, node_addr], fn
         nil -> []
       end)
     }
@@ -627,16 +629,16 @@ defmodule IrohLogger do
         label: "#{source} P:#{peers_cnt}"
       }
     )
-    
+
     SigmaGraph.add_edge(
-      graph, 
+      graph,
       %{
         source: source,
         target: target,
         props: %{ color: "grey", size: 1 }
       }
     )
-    {:noreply, 
+    {:noreply,
       state
       |> update_in([:peers, source], fn _ -> new_peers end)
     }
@@ -646,13 +648,13 @@ defmodule IrohLogger do
   def handle_info({:iroh_gossip_neighbor_down, source, target}, %{ graph: graph } = state) do
     IO.puts("Neighbor down: #{source} #{target}")
     SigmaGraph.remove_edge(
-      graph, 
+      graph,
       %{
         source: source,
         target: target,
       }
     )
-    {:noreply, 
+    {:noreply,
       state
       |> update_in([:peers, source], fn peers -> peers -- [target] end)
     }
@@ -661,7 +663,7 @@ defmodule IrohLogger do
   @impl true
   def handle_info({:iroh_gossip_node_discovered_, source, target}, %{ graph: graph } = state) do
     SigmaGraph.add_edge(
-      graph, 
+      graph,
       %{
         source: source,
         target: target,
@@ -673,15 +675,15 @@ defmodule IrohLogger do
 
   @impl true
   def handle_info({:iroh_gossip_message_received, source, payload}, %{ msg_received_cnt: msg_received_cnt, graph: graph, messages: messages, datatable: datatable } = state) do
-    
+
     edge = %{source: payload, target: source}
     IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
     SigmaGraph.remove_edge(graph, edge)
-    
+
     new_messages = messages ++ [%{source: source, payload: payload}]
-    
+
     Kino.DataTable.update(datatable, new_messages)
-  
+
     {:noreply, state
       |> Map.put(:msg_received_cnt, msg_received_cnt + 1)
       |> Map.put(:messages, new_messages)
@@ -706,11 +708,11 @@ defmodule UIGenServer do
     datatable = init_state.datatable
 
     {:ok, logger_pid} = GenServer.start_link(IrohLogger, %{graph: graph, datatable: datatable})
-    
+
     # {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
-  
+
     { :ok, manager_pid }  = IrohEx.NodeManager.start_link(logger_pid)
-    
+
     {:ok, init_state
       |> Map.put(:graph, graph)
       |> Map.put(:datatable, datatable)
@@ -719,7 +721,7 @@ defmodule UIGenServer do
     }
   end
 
-  def handle_call({:config, key, value}, _from, state) do    
+  def handle_call({:config, key, value}, _from, state) do
     IO.puts("#{__MODULE__} :config #{key} #{value}")
     {:reply, value, Map.put(state, key, value)}
   end
@@ -730,12 +732,12 @@ defmodule UIGenServer do
     manager_pid: manager_pid,
   } = state) do
     GenServer.call(manager_pid, :reset)
-  
+
     Kino.DataTable.update(datatable, [])
     SigmaGraph.clear(graph)
-    
+
     :erlang.garbage_collect()
-  
+
     {:reply, [], state}
   end
 
@@ -750,13 +752,13 @@ defmodule UIGenServer do
   } = state) do
     Kino.DataTable.update(datatable, [])
     SigmaGraph.clear(graph)
-  
+
     GenServer.call(manager_pid, {:create_nodes, num_nodes, logger_pid}, 30_000)
-    # why? 
+    # why?
     Process.sleep(delay_ms)
-    
+
     {:reply, [], state}
-  end  
+  end
 
   def handle_call(:send_messages, _from, %{
     datatable: _datatable,
@@ -766,25 +768,25 @@ defmodule UIGenServer do
     delay_ms: delay_ms,
   } = state) do
     nodes = IrohEx.NodeSupervisor.get_children()
-  
+
     # IO.inspect(nodes, label: "Nodes test")
     send_many_messages(graph, nodes, num_messages, use_random, 100 )
-  
+
     Process.sleep(delay_ms)
-  
+
     reports = Enum.map(nodes, fn n ->
       #IO.puts("Process alive? #{Process.alive?(n)}")
-  
+
       #IO.puts("node report: #{inspect(n)}")
       report = GenServer.call(n, :report)
       #IO.puts("report: #{inspect(report)}")
       report
     end)
-  
+
     IO.puts("Node reports #{inspect(reports)}" )
 
     {:reply, [], state}
-  
+
   end
 
 
@@ -796,7 +798,7 @@ defmodule UIGenServer do
       Stream.map(1..msg_cnt, fn x ->
         # Return the *action* to be performed
         fn ->
-          node = case use_random_node do 
+          node = case use_random_node do
             true -> Enum.random(nodes)
             false -> no_random_node
           end
@@ -820,11 +822,11 @@ defmodule UIGenServer do
 
           recipient_nodes = nodes -- [node]
 
-          Enum.each(recipient_nodes, fn n -> 
+          Enum.each(recipient_nodes, fn n ->
             node_id = GenServer.call(n, :get_node_addr)
             edge = %{source: msg, target: node_id, props: %{ type: "curved" }}
             IO.puts("#{__MODULE__} send_message #{msg} edge: #{inspect(edge)}")
-            SigmaGraph.add_edge(graph, edge)  
+            SigmaGraph.add_edge(graph, edge)
           end)
         end
       end)
@@ -835,9 +837,9 @@ defmodule UIGenServer do
     |> Enum.to_list()
 
     Process.sleep(1000)
-    
+
   end
-  
+
 end
 ```
 
