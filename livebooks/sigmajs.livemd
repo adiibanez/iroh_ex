@@ -555,7 +555,7 @@ defmodule SigmaGraph do
           backgroundColor,
           width: 3000,
           height: 3000,
-          cameraState: { x: 0.5, y: 0.5, angle: 0, ratio: 1 }
+          cameraState: { x: 0.5, y: 0.5, angle: 0, ratio: 1.2 }
         });
       });
 
