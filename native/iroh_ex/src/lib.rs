@@ -10,7 +10,7 @@
 #![feature(mpmc_channel)]
 #![allow(clippy::too_many_arguments)]
 
-use pprof::ProfilerGuard;
+// use pprof::ProfilerGuard;
 
 use chrono::Local;
 use iroh::endpoint;
@@ -939,63 +939,63 @@ fn add(a: i64, b: i64) -> i64 {
 // Rustler init
 
 
-fn start_deadlock_checker() {
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(10));
-        let deadlocks = deadlock::check_deadlock();
-        if deadlocks.is_empty() {
-            return;
-        }
-        eprintln!("🧨 {} deadlocks detected!", deadlocks.len());
-        for (i, threads) in deadlocks.iter().enumerate() {
-            eprintln!("Deadlock #{}", i);
-            for t in threads {
-                eprintln!("{:?}", t.backtrace());
-            }
-        }
-    });
-}
+// fn start_deadlock_checker() {
+//     thread::spawn(move || loop {
+//         thread::sleep(Duration::from_secs(10));
+//         let deadlocks = deadlock::check_deadlock();
+//         if deadlocks.is_empty() {
+//             return;
+//         }
+//         eprintln!("🧨 {} deadlocks detected!", deadlocks.len());
+//         for (i, threads) in deadlocks.iter().enumerate() {
+//             eprintln!("Deadlock #{}", i);
+//             for t in threads {
+//                 eprintln!("{:?}", t.backtrace());
+//             }
+//         }
+//     });
+// }
 
 
-pub fn start_continuous_flamegraph(interval_secs: u64) {
-    thread::spawn(move || {
-        loop {
-            let guard = match ProfilerGuard::new(100) {
-                Ok(g) => g,
-                Err(e) => {
-                    eprintln!("🔥 Failed to create profiler guard: {:?}", e);
-                    thread::sleep(Duration::from_secs(interval_secs));
-                    continue;
-                }
-            };
+// pub fn start_continuous_flamegraph(interval_secs: u64) {
+//     thread::spawn(move || {
+//         loop {
+//             let guard = match ProfilerGuard::new(100) {
+//                 Ok(g) => g,
+//                 Err(e) => {
+//                     eprintln!("🔥 Failed to create profiler guard: {:?}", e);
+//                     thread::sleep(Duration::from_secs(interval_secs));
+//                     continue;
+//                 }
+//             };
 
-            thread::sleep(Duration::from_secs(interval_secs));
+//             thread::sleep(Duration::from_secs(interval_secs));
 
-            match guard.report().build() {
-                Ok(report) => {
-                    let timestamp = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    let filename = format!("flamegraph_{}.svg", timestamp);
-                    let path = PathBuf::from(filename);
+//             match guard.report().build() {
+//                 Ok(report) => {
+//                     let timestamp = SystemTime::now()
+//                         .duration_since(UNIX_EPOCH)
+//                         .unwrap()
+//                         .as_secs();
+//                     let filename = format!("flamegraph_{}.svg", timestamp);
+//                     let path = PathBuf::from(filename);
 
-                    match File::create(&path) {
-                        Ok(mut file) => {
-                            if let Err(e) = report.flamegraph(&mut file) {
-                                eprintln!("🔥 Error writing flamegraph: {:?}", e);
-                            } else {
-                                println!("🧯 Flamegraph saved: {:?}", path);
-                            }
-                        }
-                        Err(e) => eprintln!("🔥 Failed to create flamegraph file: {:?}", e),
-                    }
-                }
-                Err(e) => eprintln!("🔥 Failed to build flamegraph report: {:?}", e),
-            }
-        }
-    });
-}
+//                     match File::create(&path) {
+//                         Ok(mut file) => {
+//                             if let Err(e) = report.flamegraph(&mut file) {
+//                                 eprintln!("🔥 Error writing flamegraph: {:?}", e);
+//                             } else {
+//                                 println!("🧯 Flamegraph saved: {:?}", path);
+//                             }
+//                         }
+//                         Err(e) => eprintln!("🔥 Failed to create flamegraph file: {:?}", e),
+//                     }
+//                 }
+//                 Err(e) => eprintln!("🔥 Failed to build flamegraph report: {:?}", e),
+//             }
+//         }
+//     });
+// }
 
 
 
@@ -1019,8 +1019,8 @@ fn on_load(env: Env, _info: Term) -> bool {
     rustler::resource!(NodeRef, env);
     println!("Rust NIF Iroh module loaded successfully.");
 
-    start_continuous_flamegraph(180);
-    start_deadlock_checker();
+    // start_continuous_flamegraph(180);
+    // start_deadlock_checker();
 
     true
 }
