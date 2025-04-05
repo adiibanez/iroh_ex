@@ -6,6 +6,7 @@
 Mix.install([
   {:kino, "~> 0.15.3"},
   {:iroh_ex, "~> 0.0.5"},
+  # {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -51,6 +52,10 @@ defmodule SigmaGraph do
   # Remove an edge
   def remove_edge(kino, edge) do
     Kino.JS.Live.cast(kino, {:remove_edge, edge})
+  end
+  
+  def export_image(kino, config) do
+    Kino.JS.Live.cast(kino, {:export_image, config})
   end
 
   def render(kino) do
@@ -182,6 +187,13 @@ defmodule SigmaGraph do
   end
 
   @impl true
+  def handle_cast({:export_image, _config}, ctx) do
+    broadcast_event(ctx, "export_image", %{width: 3000, height: 3000})
+    {:noreply, ctx}
+  end
+
+  
+  @impl true
   def handle_info(msg, ctx) do
     IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
     {:noreply, ctx}
@@ -197,6 +209,7 @@ defmodule SigmaGraph do
     import graphologyLayoutNoverlap from 'https://cdn.jsdelivr.net/npm/graphology-layout-noverlap@0.4.2/+esm';
     import sigmaEdgeCurve from 'https://cdn.jsdelivr.net/npm/@sigma/edge-curve@3.1.0/+esm';
     import debounce from 'https://cdn.jsdelivr.net/npm/debounce@2.2.0/+esm';
+    import { downloadAsImage } from 'https://cdn.jsdelivr.net/npm/@sigma/export-image@3.0.0/+esm';
 
     const { circular } = graphologyLayout;
 
@@ -528,6 +541,27 @@ defmodule SigmaGraph do
         renderer.refresh();
       });
 
+      ctx.handleEvent("export_image", ({ width, height }) => {
+        renderer.refresh();
+        const layers = ["edges", "nodes", "edgeLabels", "labels"];
+        const imgFormat = "png";
+        const fileName = "iroh_swarm.png";
+        const backgroundColor = "#fff";
+    
+        downloadAsImage(renderer, {
+          layers,
+          imgFormat,
+          fileName,
+          backgroundColor,
+          width: 3000,
+          height: 3000,
+          cameraState: { x: 0.5, y: 0.5, angle: 0, ratio: 1 }
+        });
+      });
+
+
+      
+
 
       // --- External State ---
       // Holds the ID of the node currently being hovered, or null if none.
@@ -584,7 +618,7 @@ defmodule IrohLogger do
   def get_node_size(nodes_cnt) do
     size =
       cond do
-        nodes_cnt < 100 -> 5
+        nodes_cnt < 100 -> 2
         nodes_cnt >= 100 -> 2
       end
 
@@ -703,7 +737,7 @@ defmodule IrohLogger do
       %{
         source: source,
         target: target,
-        props: %{ color: "grey", size: 1 }
+        props: %{ color: grey_tone(), size: 1 }
       }
     )
     {:noreply,
@@ -766,6 +800,11 @@ defmodule IrohLogger do
   @impl true
   def handle_call(:reset, _from, %{graph: graph, datatable: datatable} = _state) do
     {:reply, [], %{graph: graph, datatable: datatable, nodes: [], relays: [], peers: %{}, msg_received_cnt: 0, messages: []}}
+  end
+
+  defp grey_tone do
+    shade = Enum.random(100..200) # Random grey from light to dark
+    "rgb(#{shade},#{shade},#{shade})"
   end
 end
 
@@ -938,6 +977,7 @@ use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 setup_button = Kino.Control.button("Setup nodes")
 send_button = Kino.Control.button("Send messages")
 reset_button = Kino.Control.button("Reset")
+export_button = Kino.Control.button("Export png")
 
 datatable =
   Kino.DataTable.new(
@@ -947,7 +987,9 @@ datatable =
 
 buttons = Kino.Layout.grid([setup_button,
     send_button,
-    reset_button], columns: 3)
+    export_button,
+    reset_button
+], columns: 3)
 
 # Display Controls
 grid =
@@ -992,7 +1034,8 @@ Kino.Control.tagged_stream(
   delay_msg_ms: delay_msg_ms,
   setup_button: setup_button,
   send_button: send_button,
-  reset_button: reset_button
+  reset_button: reset_button,
+  export_button: export_button
 )
 |> Kino.listen(fn {key, event} ->
 
@@ -1009,6 +1052,10 @@ Kino.Control.tagged_stream(
           GenServer.call(ui_pid, :start_sim, 30_000)
         :send_button -> GenServer.call(ui_pid, :send_messages, 30_000)
         :reset_button -> GenServer.call(ui_pid, :reset)
+        :export_button -> SigmaGraph.export_image(
+            graph,
+            %{width: 3000, height: 3000}
+          )
       end
   end
 

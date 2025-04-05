@@ -3,7 +3,7 @@ defmodule IrohEx.MixProject do
 
   @version "0.0.5"
   @source_url "https://github.com/adiibanez/iroh_ex"
-  @dev? String.ends_with?(@version, "-dev")
+  # @dev? String.ends_with?(@version, "-dev")
 
   def project do
     [
@@ -12,7 +12,7 @@ defmodule IrohEx.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      package: package()
+      package: package(),
     ]
   end
 

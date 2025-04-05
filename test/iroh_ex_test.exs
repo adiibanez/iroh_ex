@@ -3,12 +3,12 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 100
+  @node_cnt 1000
   # 10_000
-  @msg_cnt 1000
+  @msg_cnt 1
   @rand_msg_delay 50
   @use_random_sender true
-  @delay_after_connect 3000
+  @delay_after_connect 1000
   @delay_after_send 1000
   @max_send_concurrency 32
 
@@ -68,6 +68,7 @@ defmodule IrohExTest do
 
   test "test many iroh nodes" do
     pid = self()
+    timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
 
     mothership_node_ref = Native.create_node(pid)
 
@@ -87,6 +88,11 @@ defmodule IrohExTest do
 
     nodes = create_nodes(nodes_cnt, pid)
 
+    timestamp_create = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+    duration_create = timestamp_create - timestamp
+    IO.puts("Create nodes took: #{duration_create}ms")
+
+
     IO.inspect(nodes, label: "Node list")
 
     tasks =
@@ -96,6 +102,10 @@ defmodule IrohExTest do
       end)
 
     Enum.each(tasks, &Task.await/1)
+
+    timestamp_connect = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+    duration_connect = timestamp_connect - timestamp_create
+    IO.puts("Create nodes took: #{duration_connect}ms")
 
     # Task.await(initial_msg, 1000)
 
@@ -179,15 +189,29 @@ defmodule IrohExTest do
     end)
 
     IO.inspect(nodes_parsed, label: "Parsed gossip message")
+
+    IO.puts("Duration create: #{duration_create}ms, connect: #{duration_connect}ms")
   end
 
   def create_nodes(node_count, pid) when is_integer(node_count) and node_count > 0 do
+
+    timeout = 180_000
+
     1..node_count
-    |> Enum.map(fn _ ->
-      Task.async(fn -> Native.create_node(pid) end)
+    |> Enum.map(fn x ->
+      IO.puts("Create node: #{x}")
+      Task.async(fn ->
+        timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+        node_ref = Native.create_node(pid)
+        timestamp_done = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+        duration = timestamp_done - timestamp
+        IO.puts("Create node #{x} took: #{duration}ms")
+        node_ref
+      end)
     end)
     # Await results
-    |> Enum.map(&Task.await/1)
+    #|> Enum.map(&Task.await/1)
+    |> Enum.map(&Task.await(&1, timeout))
     |> Enum.reduce([], fn node_ref, acc ->
       case node_ref do
         # Collect valid references

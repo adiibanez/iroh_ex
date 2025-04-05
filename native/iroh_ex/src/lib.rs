@@ -89,47 +89,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub fn start_continuous_flamegraph(interval_secs: u64) {
-    thread::spawn(move || {
-        loop {
-            let guard = match ProfilerGuard::new(100) {
-                Ok(g) => g,
-                Err(e) => {
-                    eprintln!("🔥 Failed to create profiler guard: {:?}", e);
-                    thread::sleep(Duration::from_secs(interval_secs));
-                    continue;
-                }
-            };
-
-            thread::sleep(Duration::from_secs(interval_secs));
-
-            match guard.report().build() {
-                Ok(report) => {
-                    let timestamp = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    let filename = format!("flamegraph_{}.svg", timestamp);
-                    let path = PathBuf::from(filename);
-
-                    match File::create(&path) {
-                        Ok(mut file) => {
-                            if let Err(e) = report.flamegraph(&mut file) {
-                                eprintln!("🔥 Error writing flamegraph: {:?}", e);
-                            } else {
-                                println!("🧯 Flamegraph saved: {:?}", path);
-                            }
-                        }
-                        Err(e) => eprintln!("🔥 Failed to create flamegraph file: {:?}", e),
-                    }
-                }
-                Err(e) => eprintln!("🔥 Failed to build flamegraph report: {:?}", e),
-            }
-        }
-    });
-}
-
-
+use parking_lot::deadlock;
 
 
 pub static RUNTIME: Lazy<Runtime> =
@@ -332,7 +292,7 @@ pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
     Ok(secret_key.to_string())
 }
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, RustlerError> {
     let env_pid_clone = env.pid();
     let monitor_pid = pid;
@@ -341,7 +301,8 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
     let (resource, monitor_ref) = RUNTIME.block_on(async move {
         // --- Start of async logic ---
         let endpoint = Endpoint::builder()
-            .discovery_n0()
+            // .discovery_n0()
+            .discovery_local_network()
             .bind()
             .await
             .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
@@ -468,7 +429,7 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
 //     }
 // }
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String, RustlerError> {
     println!("Create ticket");
 
@@ -497,7 +458,7 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
     Ok(ticket.to_string())
 }
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn gen_node_addr(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
     let resource_arc = node_ref.0.clone();
     let endpoint = {
@@ -511,7 +472,7 @@ fn gen_node_addr(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
     Ok(node_id.fmt_short())
 }
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 pub fn send_message(
     env: Env,
     node_ref: ResourceArc<NodeRef>,
@@ -540,7 +501,7 @@ pub fn send_message(
     Ok(node_ref)
 }
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 pub fn connect_node(
     env: Env,
     node_ref: ResourceArc<NodeRef>,
@@ -807,14 +768,14 @@ async fn connect_node_async_internal(
     Ok(())
 }
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
     // let node = node_ref.lock().unwrap();
     // node.disconnect_all();  // Assuming an API to disconnect all peers
     Ok(())
 }
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     let node = node_ref.0.clone();
 
@@ -831,7 +792,7 @@ fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
 
 
 
-#[rustler::nif(schedule = "DirtyIo")]
+#[rustler::nif(schedule = "DirtyCpu")]
 pub fn cleanup(
     env: Env,
     node_ref: ResourceArc<NodeRef>,
@@ -977,6 +938,67 @@ fn add(a: i64, b: i64) -> i64 {
 
 // Rustler init
 
+
+fn start_deadlock_checker() {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(10));
+        let deadlocks = deadlock::check_deadlock();
+        if deadlocks.is_empty() {
+            return;
+        }
+        eprintln!("🧨 {} deadlocks detected!", deadlocks.len());
+        for (i, threads) in deadlocks.iter().enumerate() {
+            eprintln!("Deadlock #{}", i);
+            for t in threads {
+                eprintln!("{:?}", t.backtrace());
+            }
+        }
+    });
+}
+
+
+pub fn start_continuous_flamegraph(interval_secs: u64) {
+    thread::spawn(move || {
+        loop {
+            let guard = match ProfilerGuard::new(100) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("🔥 Failed to create profiler guard: {:?}", e);
+                    thread::sleep(Duration::from_secs(interval_secs));
+                    continue;
+                }
+            };
+
+            thread::sleep(Duration::from_secs(interval_secs));
+
+            match guard.report().build() {
+                Ok(report) => {
+                    let timestamp = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let filename = format!("flamegraph_{}.svg", timestamp);
+                    let path = PathBuf::from(filename);
+
+                    match File::create(&path) {
+                        Ok(mut file) => {
+                            if let Err(e) = report.flamegraph(&mut file) {
+                                eprintln!("🔥 Error writing flamegraph: {:?}", e);
+                            } else {
+                                println!("🧯 Flamegraph saved: {:?}", path);
+                            }
+                        }
+                        Err(e) => eprintln!("🔥 Failed to create flamegraph file: {:?}", e),
+                    }
+                }
+                Err(e) => eprintln!("🔥 Failed to build flamegraph report: {:?}", e),
+            }
+        }
+    });
+}
+
+
+
 fn on_load(env: Env, _info: Term) -> bool {
     // let _ = console_subscriber::init();
     // setup_console_subscriber_once();
@@ -998,6 +1020,7 @@ fn on_load(env: Env, _info: Term) -> bool {
     println!("Rust NIF Iroh module loaded successfully.");
 
     start_continuous_flamegraph(180);
+    start_deadlock_checker();
 
     true
 }
