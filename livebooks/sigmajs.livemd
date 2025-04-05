@@ -543,10 +543,10 @@ defmodule SigmaGraph do
 
       ctx.handleEvent("export_image", ({ width, height }) => {
         renderer.refresh();
-        const layers = ["edges", "nodes", "edgeLabels", "labels"];
+        const layers = ["edges", "nodes"]; //, "edgeLabels", "labels"];
         const imgFormat = "png";
         const fileName = "iroh_swarm.png";
-        const backgroundColor = "#fff";
+        const backgroundColor = "#000";
     
         downloadAsImage(renderer, {
           layers,
@@ -609,6 +609,25 @@ end
 ```elixir
 defmodule IrohLogger do
   use GenServer
+
+
+  @base_colors %{
+    "red" => "#cc4d4d",
+    "orange" => "#cc944d",
+    "yellow" => "#cccc66",
+    "green" => "#3a6b3a"
+  }
+
+  @brightness_levels [
+    "33",  # 20%
+    "4D",  # 30%
+    "66",  # 40%
+    "80",  # 50%
+    "99",  # 60%
+    "B3",  # 70%
+    "CC",  # 80%
+    "E6",  # 90%
+  ]
 
   @impl true
   def init(config) do
@@ -694,7 +713,6 @@ defmodule IrohLogger do
       |> Map.put(:relays, Enum.uniq([node_relay | relays]))
       |> update_in([:peers, node_addr], fn
         nil -> []
-        _ -> []
       end)
     }
   end
@@ -703,10 +721,7 @@ defmodule IrohLogger do
   def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
     IO.puts("Neighbor up: #{source} #{target}")
 
-    new_peers = case peers[source] do
-      nil -> [target]
-      source_peers -> source_peers ++ [target]
-    end
+    new_peers = peers[source] ++ [target]
 
     peers_cnt = Enum.count(new_peers)
     nodes_cnt = Enum.count(nodes)
@@ -719,10 +734,10 @@ defmodule IrohLogger do
 
     color =
       cond do
-        peers_cnt == 0 -> "red"
-        peers_cnt == 1 -> "orange"
-        peers_cnt < 3 -> "yellow"
-        peers_cnt >= 3 -> "green"
+        peers_cnt == 0 -> vary_color("red", "E6")
+        peers_cnt == 1 -> vary_color("orange", "E6")
+        peers_cnt < 3 -> vary_color("yellow", "E6")
+        peers_cnt >= 3 -> vary_color("green", "E6")
       end
 
     SigmaGraph.merge_node(
@@ -736,20 +751,22 @@ defmodule IrohLogger do
       }
     )
 
-    SigmaGraph.add_edge(
-      graph,
-      %{
-        source: source,
-        target: target,
-        props: %{ color: grey_tone(), size: 1 }
-      }
-    )
+    has_inverse_edge = Map.get(peers, target, []) |> Enum.member?(source)
+
+    unless has_inverse_edge do
+      SigmaGraph.add_edge(
+        graph,
+        %{
+          source: source,
+          target: target,
+          props: %{ type: "curved", curvature: 0.03, color: grey_tone(), size: 1 }
+        }
+      )
+    end
+    
     {:noreply,
       state
-      |> update_in([:peers, source], fn
-        nil -> new_peers
-        _ -> new_peers
-      end)
+      |> update_in([:peers, source], fn _ -> new_peers end)
     }
   end
 
@@ -816,6 +833,13 @@ defmodule IrohLogger do
     shade = Enum.random(100..200) # Random grey from light to dark
     "rgb(#{shade},#{shade},#{shade})"
   end
+
+  defp vary_color(base, brightness \\ nil) do
+    base_color = @base_colors[base]
+    alpha = brightness || Enum.random(@brightness_levels)
+    base_color <> alpha
+  end
+
 end
 
 
