@@ -227,6 +227,8 @@ defmodule SigmaGraph do
 
       // --- Reducers ---
 
+      let exportMode = false;
+
       /**
        * Decides the final attributes for each node based on the hover state.
        * This function is passed to the Sigma constructor.
@@ -234,6 +236,10 @@ defmodule SigmaGraph do
       const nodeReducer = (nodeId, attributes) => {
         // Base attributes to potentially modify
         const newAttributes = { ...attributes };
+
+        if (exportMode) {
+          newAttributes.size = attributes.size * 3; // Increase size only for export
+        }
 
         if (hoveredNodeId) {
           // A node is hovered
@@ -542,25 +548,25 @@ defmodule SigmaGraph do
       });
 
       ctx.handleEvent("export_image", ({ width, height }) => {
+        exportMode = true;
         renderer.refresh();
-        const layers = ["edges", "nodes"]; //, "edgeLabels", "labels"];
-        const imgFormat = "png";
-        const fileName = "iroh_swarm.png";
-        const backgroundColor = "#000";
-    
-        downloadAsImage(renderer, {
-          layers,
-          imgFormat,
-          fileName,
-          backgroundColor,
-          width: 3000,
-          height: 3000,
-          cameraState: { x: 0.5, y: 0.5, angle: 0, ratio: 1.2 }
-        });
-      });
-
-
       
+        setTimeout(() => {
+          downloadAsImage(renderer, {
+            layers: ["edges", "nodes"],
+            imgFormat: "png",
+            fileName: "iroh_swarm.png",
+            backgroundColor: "#000",
+            width: 3000,
+            height: 3000,
+            cameraState: { x: 0.5, y: 0.5, angle: 0, ratio: 1.2 }
+          });
+      
+          // Reset export mode and refresh back
+          exportMode = false;
+          renderer.refresh();
+        }, 200); // Small delay ensures updated rendering
+      });
 
 
       // --- External State ---
@@ -713,6 +719,7 @@ defmodule IrohLogger do
       |> Map.put(:relays, Enum.uniq([node_relay | relays]))
       |> update_in([:peers, node_addr], fn
         nil -> []
+        peers -> peers
       end)
     }
   end
@@ -721,7 +728,10 @@ defmodule IrohLogger do
   def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
     IO.puts("Neighbor up: #{source} #{target}")
 
-    new_peers = peers[source] ++ [target]
+    new_peers = case peers[source] do
+      nil -> [target]
+      peers -> peers ++ [target]
+    end
 
     peers_cnt = Enum.count(new_peers)
     nodes_cnt = Enum.count(nodes)
@@ -783,7 +793,7 @@ defmodule IrohLogger do
     {:noreply,
       state
       |> update_in([:peers, source], fn
-        nil -> []  # Nothing to remove from
+        nil -> []
         peers -> peers -- [target]
       end)
     }
