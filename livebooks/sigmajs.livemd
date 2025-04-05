@@ -758,7 +758,10 @@ defmodule IrohLogger do
     )
     {:noreply,
       state
-      |> update_in([:peers, source], fn peers -> peers -- [target] end)
+      |> update_in([:peers, source], fn
+        nil -> []  # Nothing to remove from
+        peers -> peers -- [target]
+      end)
     }
   end
 
