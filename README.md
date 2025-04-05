@@ -5,7 +5,7 @@ Attempt at a seamless Iroh integration via Elixir + Rustler.
 Elixir orchestrates and manages concurrency, while Rust handles low-level networking, swarm-forming, encryption, and performance-critical tasks.
 Currently includes only basic Iroh functionality — with randomized PKI and gossip topic assignment.
 
-requires ulimit -n X configuration suitable to the number of nodes in the swarm. Default on osx is 256. This configuration isn't integrated in livebook at the moment.
+requires ulimit -n X configuration suitable to the number of nodes in the swarm. Default on osx is 256. This configuration isn't integrated in livebook at the moment. Starting many nodes ( thousands ) can upset your network stack and / or router.
 
 [![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https://github.com/adiibanez/iroh_ex/blob/main/livebooks/sigmajs.livemd)
 
