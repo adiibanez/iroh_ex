@@ -1,5 +1,5 @@
 # IrohEx
-![2000 node iroh swarm](https://raw.githubusercontent.com/adiibanez/iroh_ex/refs/heads/main/livebooks/swarm.jpg)
+![2000 node iroh swarm](https://raw.githubusercontent.com/adiibanez/iroh_ex/refs/heads/main/media/iroh_swarm.jpg)
 
 Attempt at a seamless Iroh integration via Elixir + Rustler.
 Elixir orchestrates and manages concurrency, while Rust handles low-level networking, swarm-forming, encryption, and performance-critical tasks.

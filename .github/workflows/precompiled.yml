@@ -2,16 +2,15 @@ name: Precomp NIFs
 
 on:
   push:
-    branches:
-      - main
-    paths:
+    # branches:
+    #  - main
+    #paths:
       # Just run on main branch if "native" path changed.
-      - "native/**"
+    #  - "native/**"
       # Also run if this file changes.
       #- ".github/workflows/release.yml"
-      - ".github/workflows/**"
+    #  - ".github/workflows/**"
     tags:
-      # Tags will always run.
       - "*"
   pull_request:
     paths:
