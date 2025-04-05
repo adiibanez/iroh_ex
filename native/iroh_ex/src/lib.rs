@@ -10,6 +10,8 @@
 #![feature(mpmc_channel)]
 #![allow(clippy::too_many_arguments)]
 
+use pprof::ProfilerGuard;
+
 use chrono::Local;
 use iroh::endpoint;
 use iroh::RelayUrl;
@@ -35,6 +37,9 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout, Duration};
+
+// use tracing_subscriber::{Registry, prelude::*};
+// use console_subscriber::ConsoleLayer;
 
 use std::fmt;
 use std::ptr;
@@ -75,6 +80,57 @@ use n0_future::boxed::BoxFuture;
 use n0_future::StreamExt;
 
 use rand::distributions::Alphanumeric;
+
+
+use std::{
+    fs::File,
+    path::PathBuf,
+    thread,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+pub fn start_continuous_flamegraph(interval_secs: u64) {
+    thread::spawn(move || {
+        loop {
+            let guard = match ProfilerGuard::new(100) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("🔥 Failed to create profiler guard: {:?}", e);
+                    thread::sleep(Duration::from_secs(interval_secs));
+                    continue;
+                }
+            };
+
+            thread::sleep(Duration::from_secs(interval_secs));
+
+            match guard.report().build() {
+                Ok(report) => {
+                    let timestamp = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let filename = format!("flamegraph_{}.svg", timestamp);
+                    let path = PathBuf::from(filename);
+
+                    match File::create(&path) {
+                        Ok(mut file) => {
+                            if let Err(e) = report.flamegraph(&mut file) {
+                                eprintln!("🔥 Error writing flamegraph: {:?}", e);
+                            } else {
+                                println!("🧯 Flamegraph saved: {:?}", path);
+                            }
+                        }
+                        Err(e) => eprintln!("🔥 Failed to create flamegraph file: {:?}", e),
+                    }
+                }
+                Err(e) => eprintln!("🔥 Failed to build flamegraph report: {:?}", e),
+            }
+        }
+    });
+}
+
+
+
 
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime"));
@@ -367,8 +423,10 @@ pub fn create_node(env: Env, pid: LocalPid) -> Result<ResourceArc<NodeRef>, Rust
             }
         }));
 
+        
         {
             let mut state = resource.0.lock().unwrap();
+
             state.erlang_event_handler_task = erlang_event_handler_task;
         }
 
@@ -415,9 +473,11 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
     println!("Create ticket");
 
     let resource_arc = node_ref.0.clone();
-    let state = resource_arc.lock().unwrap();
 
-    let endpoint = { state.endpoint.clone() };
+    let endpoint = {
+        let state = resource_arc.lock().unwrap();
+        state.endpoint.clone()
+    };
 
     let topic = TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string()));
 
@@ -440,9 +500,10 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 #[rustler::nif(schedule = "DirtyIo")]
 fn gen_node_addr(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
     let resource_arc = node_ref.0.clone();
-    let state = resource_arc.lock().unwrap();
-
-    let endpoint = { state.endpoint.clone() };
+    let endpoint = {
+        let state = resource_arc.lock().unwrap();
+        state.endpoint.clone()
+    };
 
     let node_id = endpoint.node_id();
 
@@ -459,13 +520,11 @@ pub fn send_message(
     // println!("Message: {:?}", message);
 
     let resource_arc = node_ref.0.clone();
-    let state = resource_arc.lock().unwrap();
 
-    let endpoint = { state.endpoint.clone() };
-
-    let gossip = { state.gossip.clone() };
-
-    let sender = { state.sender.clone() };
+    let (endpoint, gossip, sender ) = {
+        let state = resource_arc.lock().unwrap();
+        (state.endpoint.clone(), state.gossip.clone(), state.sender.clone())
+    };
 
     let message = Message::AboutMe {
         from: endpoint.node_id(),
@@ -758,9 +817,11 @@ fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
 #[rustler::nif(schedule = "DirtyIo")]
 fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     let node = node_ref.0.clone();
-    let state = node.lock().unwrap();
 
-    let endpoint = { state.endpoint.clone() };
+    let endpoint = {
+        let state = node_ref.0.lock().unwrap();
+        state.endpoint.clone()
+    };
 
     //endpoint.discovery_stream();
 
@@ -907,9 +968,19 @@ fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
+
+// fn setup_console_subscriber_once() {
+//     let _ = Registry::default()
+//         .with(ConsoleLayer::builder().with_default_env().spawn())
+//         .try_init();
+// }
+
 // Rustler init
 
 fn on_load(env: Env, _info: Term) -> bool {
+    // let _ = console_subscriber::init();
+    // setup_console_subscriber_once();
+
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("iroh=error,iroh_ex=info"));
 
@@ -925,6 +996,9 @@ fn on_load(env: Env, _info: Term) -> bool {
     println!("Initializing Rust Iroh NIF module ...");
     rustler::resource!(NodeRef, env);
     println!("Rust NIF Iroh module loaded successfully.");
+
+    start_continuous_flamegraph(180);
+
     true
 }
 
