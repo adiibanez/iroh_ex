@@ -89,7 +89,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use parking_lot::deadlock;
+// use parking_lot::deadlock;
 
 
 pub static RUNTIME: Lazy<Runtime> =
