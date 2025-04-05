@@ -3,13 +3,13 @@ name: Elixir CI
 on:
   push:
     branches: ["main"]
-  paths:
-    # Just run on main branch if "native" path changed.
-    - "lib/**"
-    - "mix.exs"
-    # Also run if this file changes.
-    # - ".github/workflows/rust.yml"
-    - ".github/workflows/**"
+    paths:
+      # Just run on main branch if "native" path changed.
+      - "lib/**"
+      - "mix.exs"
+      # Also run if this file changes.
+      # - ".github/workflows/rust.yml"
+      - ".github/workflows/**"
   pull_request:
     branches: ["main"]
 

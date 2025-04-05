@@ -3,12 +3,12 @@ name: Rust
 on:
   push:
     branches: [ "main" ]
-  paths:
-    # Just run on main branch if "native" path changed.
-    - "native/**"
-    # Also run if this file changes.
-    # - ".github/workflows/rust.yml"
-    - ".github/workflows/**"
+    paths:
+      # Just run on main branch if "native" path changed.
+      - "native/**"
+      # Also run if this file changes.
+      # - ".github/workflows/rust.yml"
+      - ".github/workflows/**"
   pull_request:
     branches: [ "main" ]
 
