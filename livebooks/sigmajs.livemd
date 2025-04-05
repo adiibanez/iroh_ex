@@ -694,6 +694,7 @@ defmodule IrohLogger do
       |> Map.put(:relays, Enum.uniq([node_relay | relays]))
       |> update_in([:peers, node_addr], fn
         nil -> []
+        _ -> []
       end)
     }
   end
@@ -702,7 +703,10 @@ defmodule IrohLogger do
   def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
     IO.puts("Neighbor up: #{source} #{target}")
 
-    new_peers = peers[source] ++ [target]
+    new_peers = case peers[source] do
+      nil -> [target]
+      source_peers -> source_peers ++ [target]
+    end
 
     peers_cnt = Enum.count(new_peers)
     nodes_cnt = Enum.count(nodes)
@@ -742,7 +746,10 @@ defmodule IrohLogger do
     )
     {:noreply,
       state
-      |> update_in([:peers, source], fn _ -> new_peers end)
+      |> update_in([:peers, source], fn
+        nil -> new_peers
+        _ -> new_peers
+      end)
     }
   end
 
