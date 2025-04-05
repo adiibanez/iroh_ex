@@ -866,7 +866,7 @@ defmodule UIGenServer do
     Kino.DataTable.update(datatable, [])
     SigmaGraph.clear(graph)
 
-    GenServer.call(manager_pid, {:create_nodes, num_nodes, logger_pid}, 30_000)
+    GenServer.call(manager_pid, {:create_nodes, num_nodes, logger_pid, delay_ms}, 30_000)
     # why?
     Process.sleep(delay_ms)
 
@@ -970,7 +970,7 @@ nil
 
 # UI Controls
 num_nodes = Kino.Input.number("Number of Nodes", default: 30, min: 3)
-delay_ms = Kino.Input.number("Delay after connect, before sending messages", default: 1000, min: 0)
+delay_ms = Kino.Input.number("Delay after connecting a batch of nodes", default: 1000, min: 0)
 delay_msg_ms = Kino.Input.number("Delay msg random", default: 1000, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)

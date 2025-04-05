@@ -1,7 +1,7 @@
 defmodule IrohEx.MixProject do
   use Mix.Project
 
-  @version "0.0.5"
+  @version "0.0.6"
   @source_url "https://github.com/adiibanez/iroh_ex"
   # @dev? String.ends_with?(@version, "-dev")
 
