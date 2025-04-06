@@ -5,8 +5,8 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.6"},
-  # {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  # {:iroh_ex, "~> 0.0.6"},
+  {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   # {:iroh_ex, path: "/home/adrianibanez/projects/2025_sensocto/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
@@ -45,9 +45,9 @@ defmodule SigmaGraph do
     Kino.JS.Live.cast(kino, {:add_edge, edge})
   end
 
-  # Add an edge without rendering
-  def add_edge_batched(kino, edge) do
-    Kino.JS.Live.cast(kino, {:add_edge_batched, edge})
+  # Add many edges
+  def add_edges_batch(kino, edges) do
+    Kino.JS.Live.cast(kino, {:add_edges_batch, edges})
   end
 
   # Remove an edge
@@ -144,9 +144,12 @@ defmodule SigmaGraph do
   end
 
   @impl true
-  def handle_cast({:add_edge_batched, edge}, ctx) do
-    ctx = update_in(ctx.assigns.edges, &[edge | &1])
-    broadcast_event(ctx, "add_edge_batched", edge)
+  def handle_cast({:add_edges_batch, edges}, ctx) do
+    ctx = update_in(ctx.assigns.edges, fn 
+      nil -> edges
+      existing_edges -> existing_edges ++ edges 
+    end)
+    broadcast_event(ctx, "add_edges_batch", %{edges: edges})
     {:noreply, ctx}
   end
 
@@ -178,8 +181,8 @@ defmodule SigmaGraph do
     ctx =
       update_in(
         ctx.assigns.edges,
-        &Enum.reject(&1, fn e ->
-          edge.source == e.source && edge.target == e.target
+        &Enum.reject(&1, fn 
+          e -> edge.source == e.source && edge.target == e.target
         end)
       )
 
@@ -554,13 +557,17 @@ defmodule SigmaGraph do
           if( graph.hasEdge(source, target) ) graph.dropEdge(source, target);
           graph.addEdge(source, target, props);
         }
-        debounce(render, 100);
+
+        debounce(render, graph.size > 100 ? 500 : 100);
       });
 
-      ctx.handleEvent("add_edge_batched", ({ source, target, props }) => {
-        if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
-          graph.addEdge(source, target, props);
-        }
+      ctx.handleEvent("add_edges_batch", ({ edges }) => {
+        edges.forEach((edge, i) => {
+          if (graph.hasNode(edge.source) && graph.hasNode(edge.target) && !graph.hasEdge(edge.source, edge.target)) {
+            graph.addEdge(edge.source, edge.target, edge.props);
+          }
+        });
+        debounce(render, graph.size > 100 ? 500 : 100);
       });
 
       ctx.handleEvent("render", (ctx) => {
@@ -574,7 +581,7 @@ defmodule SigmaGraph do
         } else {
           // console.log("no edge with ", source, target);
         }
-        renderer.refresh();
+        debounce(render, graph.size > 100 ? 500 : 100);
       });
 
       ctx.handleEvent("export_image", ({ width, height }) => {
@@ -829,7 +836,7 @@ defmodule IrohLogger do
   end
 
   @impl true
-  def handle_info({:iroh_gossip_node_discovered_, source, target}, %{ graph: graph } = state) do
+  def handle_info({:iroh_gossip_node_discovered, source, target}, %{ graph: graph } = state) do
     SigmaGraph.add_edge(
       graph,
       %{
@@ -845,7 +852,7 @@ defmodule IrohLogger do
   def handle_info({:iroh_gossip_message_received, source, payload}, %{ msg_received_cnt: msg_received_cnt, graph: graph, messages: messages, datatable: datatable } = state) do
 
     edge = %{source: payload, target: source}
-    # IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
+    IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
     Task.async(fn -> SigmaGraph.remove_edge(graph, edge) end)
     
     new_messages = messages ++ [%{source: source, payload: payload}]
@@ -884,6 +891,7 @@ end
 
 defmodule UIGenServer do
   use GenServer
+  @impl true
   def init( init_state ) do
 
     graph = init_state.graph
@@ -900,6 +908,7 @@ defmodule UIGenServer do
       |> Map.put(:datatable, datatable)
       |> Map.put(:logger_pid,  logger_pid)
       |> Map.put(:manager_pid, manager_pid)
+      |> Map.put(:msg_counter, 1)
     }
   end
 
@@ -945,6 +954,37 @@ defmodule UIGenServer do
     {:reply, [], state}
   end
 
+  @impl true
+  def handle_call(:send_single_message, _from, %{
+    datatable: _datatable,
+    graph: _graph,
+    use_random: _use_random,
+    delay_ms: delay_ms,
+    msg_counter: msg_counter
+  } = state) do
+    nodes = IrohEx.NodeSupervisor.get_children()
+
+    node = Enum.random(nodes)
+
+    msg = "MSG:#{msg_counter}"
+
+    msg_delay = :rand.uniform(delay_ms)
+    recipient_nodes = nodes -- [node]
+
+    #Native.send_message(node, msg)
+    #GenServer.cast(manager_pid, {:send_message, node, msg})
+    # GenServer.cast(node, {:send_message, msg})
+
+    # Process.sleep(msg_delay)
+    Process.send_after(self(), {:add_inflight_messages, recipient_nodes, msg}, 0)
+    Process.send_after(node, {:send_message, msg}, msg_delay)
+
+    {:reply, [], state
+      |> Map.put(:msg_counter, msg_counter + 1)
+    }
+  end
+
+  @impl true
   def handle_call(:send_messages, _from, %{
     datatable: _datatable,
     graph: graph,
@@ -955,7 +995,7 @@ defmodule UIGenServer do
     nodes = IrohEx.NodeSupervisor.get_children()
 
     # IO.inspect(nodes, label: "Nodes test")
-    send_many_messages(graph, nodes, num_messages, use_random, 100 )
+    send_many_messages(self(), graph, nodes, num_messages, use_random, 100 )
 
     Process.sleep(delay_ms)
 
@@ -974,8 +1014,7 @@ defmodule UIGenServer do
 
   end
 
-
-  def send_many_messages(graph, nodes, msg_cnt, use_random_node, rand_msg_delay \\ 100) do
+  def send_many_messages(pid, _graph, nodes, msg_cnt, use_random_node, rand_msg_delay \\ 100) do
 
     no_random_node = Enum.random(nodes)
 
@@ -994,25 +1033,20 @@ defmodule UIGenServer do
 
           msg = "MSG:#{x}"
 
+          msg_delay = :rand.uniform(rand_msg_delay)
+          recipient_nodes = nodes -- [node]
+
           #Native.send_message(node, msg)
           #GenServer.cast(manager_pid, {:send_message, node, msg})
           # GenServer.cast(node, {:send_message, msg})
-          Process.send_after(node, {:send_message, msg}, :rand.uniform(rand_msg_delay))
 
-          SigmaGraph.add_node(
-            graph,
-            %{id: msg, layout: "grid", size: 5, label: msg, color: "grey"},
-            true
-          )
+          # Process.sleep(msg_delay)
+          Process.send_after(pid, {:add_inflight_messages, recipient_nodes, msg}, 0)
+          Process.send_after(node, {:send_message, msg}, msg_delay)
+          # add msg node and edges
 
-          recipient_nodes = nodes -- [node]
-
-          Enum.each(recipient_nodes, fn n ->
-            node_id = GenServer.call(n, :get_node_addr)
-            edge = %{source: msg, target: node_id, props: %{ type: "curved", color: "#E2B12D4A" }}
-            # IO.puts("#{__MODULE__} send_message #{msg} edge: #{inspect(edge)}")
-            Task.async(fn -> SigmaGraph.add_edge(graph, edge) end)
-          end)
+          # IO.inspect(recipient_nodes, label: "msg recipients")
+          
         end
       end)
 
@@ -1020,10 +1054,37 @@ defmodule UIGenServer do
     |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
     # |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
     |> Enum.to_list()
-
     Process.sleep(1000)
 
   end
+
+  @impl true
+  def handle_info({:add_inflight_messages, recipient_nodes, msg }, %{ graph: graph } = state ) do
+    IO.puts("#{__MODULE__} handle_info :add_inflight_messages #{Enum.count(recipient_nodes)} #{inspect(recipient_nodes)} #{inspect(msg)}")
+
+    SigmaGraph.add_node(
+      graph,
+      %{id: msg, layout: "grid", size: 5, label: msg, color: "grey"},
+      true
+    )
+
+    edges =
+      Enum.reduce(recipient_nodes, [], fn n, acc ->
+        node_id = GenServer.call(n, :get_node_addr)
+        edge = %{source: msg, target: node_id, props: %{type: "curved", color: "#E2B12D4A"}}
+        [edge | acc]
+      end)
+
+    SigmaGraph.add_edges_batch(graph, edges) 
+    
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    IO.puts("#{__MODULE__} catchall handle_info #{inspect(msg)}")
+    {:noreply, state}
+  end  
 
 end
 ```
@@ -1048,6 +1109,8 @@ num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 setup_button = Kino.Control.button("Setup nodes")
 send_button = Kino.Control.button("Send messages")
+send_single_button = Kino.Control.button("Send message")
+send_continuous_button = Kino.Input.checkbox("Continuous")
 reset_button = Kino.Control.button("Reset")
 export_button = Kino.Control.button("Export png")
 
@@ -1057,22 +1120,33 @@ datatable =
     keys: [:source, :payload]
   )
 
+# render but hide
+frame_hidden = Kino.Frame.new()
+Kino.Frame.render(frame_hidden, Kino.Layout.grid([send_button, send_continuous_button, num_messages, delay_msg_ms ]))
+Kino.Frame.render(frame_hidden, nil)
+
 buttons = Kino.Layout.grid([setup_button,
-    send_button,
+    # send_button,
+    send_single_button,
+    # send_continuous_button,
     export_button,
     reset_button
-], columns: 4)
+], columns: 6)
 
 # Display Controls
 grid =
   Kino.Layout.grid([
     graph,
     buttons,
-    num_nodes,
-    delay_ms,
-    delay_msg_ms,
-    num_messages,
-    use_random,
+
+    Kino.Layout.grid([num_nodes,
+      delay_ms,
+      #delay_msg_ms,
+      # num_messages,
+      use_random
+    ], 
+      columns: 2
+    ),
     datatable
   ])
 
@@ -1083,10 +1157,10 @@ grid
 ```elixir
 
 num_nodes_value = Kino.Input.read(num_nodes)
-num_messages_value = Kino.Input.read(num_messages) #Kino.Input.read(num_messages)
-use_random_value = Kino.Input.read(use_random)
+num_messages_value = 1 # Kino.Input.read(num_messages) #Kino.Input.read(num_messages)
+use_random_value = true # Kino.Input.read(use_random)
 delay_ms_value = Kino.Input.read(delay_ms)
-delay_msg_ms_value = Kino.Input.read(delay_msg_ms)
+delay_msg_ms_value = 100 # Kino.Input.read(delay_msg_ms)
 
 {:ok, ui_pid} = GenServer.start_link(UIGenServer, %{
   graph: graph,
@@ -1106,6 +1180,7 @@ Kino.Control.tagged_stream(
   delay_msg_ms: delay_msg_ms,
   setup_button: setup_button,
   send_button: send_button,
+  send_single_button: send_single_button,
   reset_button: reset_button,
   export_button: export_button
 )
@@ -1123,6 +1198,7 @@ Kino.Control.tagged_stream(
           GenServer.call(ui_pid, :reset)
           GenServer.call(ui_pid, :start_sim, 30_000)
         :send_button -> GenServer.call(ui_pid, :send_messages, 30_000)
+        :send_single_button -> GenServer.call(ui_pid, :send_single_message, 30_000)
         :reset_button -> GenServer.call(ui_pid, :reset)
         :export_button -> SigmaGraph.export_image(
             graph,
