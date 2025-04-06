@@ -222,6 +222,11 @@ defmodule SigmaGraph do
 
     const { circular } = graphologyLayout;
 
+    const gridDefaultOffset = 30;
+    var gridOffset = gridDefaultOffset;
+    var gridYOffset = 0;
+    
+
     // --- Configuration ---
     const DIMMED_COLOR = "rgba(50, 50, 50, 0.7)";
     // const DIMMED_COLOR = "#ddd";
@@ -420,6 +425,8 @@ defmodule SigmaGraph do
               // console.log("ring ", radius, nodes.length);
               placeNodesInRing(centerX, centerY, radius, nodes);
           });
+
+          gridOffset = gridDefaultOffset + (baseRadius + minSpacing) * rings.length;
       }
 
       function placeNodesInRing(centerX, centerY, radius, nodes) {
@@ -453,16 +460,24 @@ defmodule SigmaGraph do
     }*/
 
       function placeNodesInGrid(gridStartX, gridStartY, cols, spacing) {
-          const gridNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "grid");
-
-          gridNodes.forEach((node, i) => {
-              const row = Math.floor(i / cols);
-              const col = i % cols;
-              graph.mergeNodeAttributes(node, {
-                  x: gridStartX + col * spacing, // Column placement
-                  y: gridStartY + row * spacing, // Row placement
-              });
+        const gridNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "grid");
+        const nodeCount = gridNodes.length;
+        const rows = Math.ceil(nodeCount / cols);
+        const totalHeight = (rows - 1) * spacing;
+      
+        const yOffset = -totalHeight / 2; // center the grid vertically around gridStartY
+      
+        gridNodes.forEach((node, i) => {
+          const row = Math.floor(i / cols);
+          const col = i % cols;
+          graph.mergeNodeAttributes(node, {
+            x: gridStartX + col * spacing,
+            y: gridStartY + yOffset + row * spacing,
           });
+        });
+      
+        // Optional: set gridYOffset globally if needed elsewhere
+        window.gridYOffset = yOffset;
       }
 
       function render() {
@@ -482,6 +497,7 @@ defmodule SigmaGraph do
       }
 
       ctx.handleEvent("clear", (n) => {
+        gridOffset = 20;
         graph.clear();
         renderer.refresh();
       });
@@ -504,7 +520,7 @@ defmodule SigmaGraph do
             placeNodesInMultiRings(0, 0, 20, 3);
           }
           // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
-          if(node.layout == 'grid') placeNodesInGrid(-150, 0, 4, 5);
+          if(node.layout == 'grid') placeNodesInGrid(-1 * gridOffset, 0, 4, 5);
 
         } else {
           // console.log("Node " + node.id + " already exists, ignore");
@@ -993,7 +1009,7 @@ defmodule UIGenServer do
 
           Enum.each(recipient_nodes, fn n ->
             node_id = GenServer.call(n, :get_node_addr)
-            edge = %{source: msg, target: node_id, props: %{ type: "curved" }}
+            edge = %{source: msg, target: node_id, props: %{ type: "curved", color: "#E2B12D4A" }}
             # IO.puts("#{__MODULE__} send_message #{msg} edge: #{inspect(edge)}")
             Task.async(fn -> SigmaGraph.add_edge(graph, edge) end)
           end)
@@ -1025,9 +1041,9 @@ nil
 ```elixir
 
 # UI Controls
-num_nodes = Kino.Input.number("Number of Nodes", default: 30, min: 3)
-delay_ms = Kino.Input.number("Delay after connecting a batch of nodes", default: 1000, min: 0)
-delay_msg_ms = Kino.Input.number("Delay msg random", default: 1000, min: 0)
+num_nodes = Kino.Input.number("Number of Nodes", default: 50, min: 3)
+delay_ms = Kino.Input.number("Delay after connecting a batch of nodes", default: 300, min: 0)
+delay_msg_ms = Kino.Input.number("Delay msg random", default: 500, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 setup_button = Kino.Control.button("Setup nodes")
@@ -1045,7 +1061,7 @@ buttons = Kino.Layout.grid([setup_button,
     send_button,
     export_button,
     reset_button
-], columns: 3)
+], columns: 4)
 
 # Display Controls
 grid =
