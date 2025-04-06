@@ -7,6 +7,7 @@ Mix.install([
   {:kino, "~> 0.15.3"},
   {:iroh_ex, "~> 0.0.6"},
   # {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  # {:iroh_ex, path: "/home/adrianibanez/projects/2025_sensocto/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -645,7 +646,6 @@ end
 defmodule IrohLogger do
   use GenServer
 
-
   @base_colors %{
     "red" => "#cc4d4d",
     "orange" => "#cc944d",
@@ -858,7 +858,7 @@ defmodule IrohLogger do
   end
 
   @impl true
-  def handle_info(msg, state) do
+  def handle_info(_msg, state) do
     # IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
     {:noreply, state}
   end
@@ -1031,7 +1031,7 @@ end
 ```elixir
 graph = SigmaGraph.new()
 # do not show graph yet
-nil
+"Graph initialized"
 ```
 
 ## Run stuff
