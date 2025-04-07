@@ -99,7 +99,9 @@ defmodule SigmaGraph do
       x: :rand.uniform(10),
       y: :rand.uniform(10),
       size: 10,
-      color: "#1f77b4"
+      color: "#1f77b4",
+      type: "border",
+      borderColor: "#ddd"
     }
 
     node = Map.merge(default_values, node)
@@ -221,6 +223,7 @@ defmodule SigmaGraph do
     import sigmaEdgeCurve from 'https://cdn.jsdelivr.net/npm/@sigma/edge-curve@3.1.0/+esm';
     import debounce from 'https://cdn.jsdelivr.net/npm/debounce@2.2.0/+esm';
     import { downloadAsImage } from 'https://cdn.jsdelivr.net/npm/@sigma/export-image@3.0.0/+esm';
+    import { NodeBorderProgram } from 'https://cdn.jsdelivr.net/npm/@sigma/node-border@3.0.0/+esm';
 
     const { circular } = graphologyLayout;
 
@@ -328,6 +331,9 @@ defmodule SigmaGraph do
         defaultLabelSize: 14,
         nodeReducer: nodeReducer,
         edgeReducer: edgeReducer,
+        nodeProgramClasses: {
+          border: NodeBorderProgram,
+        },
         edgeProgramClasses: {
           curved: sigmaEdgeCurve,
         },
@@ -436,17 +442,32 @@ defmodule SigmaGraph do
       
           const angleStep = (2 * Math.PI) / nodes.length;
       
+          const jitterStrength = 1; // max random offset in pixels
+
           nodes.forEach((node, i) => {
               const angle = i * angleStep;
-              const x = centerX + radius * Math.cos(angle);
-              const y = centerY + radius * Math.sin(angle);
-      
-              // console.log(`Node ${node} -> Ring ${radius}, Angle: ${angle.toFixed(2)}, Pos: (${x.toFixed(2)}, ${y.toFixed(2)})`);
-      
+              
+              // Radial jitter (push/pull a little)
+              const radialOffset = (Math.random() - 0.5) * 2 * jitterStrength;
+              
+              // Tangential jitter (slide along the circle a bit)
+              const tangentialOffset = (Math.random() - 0.5) * 2 * jitterStrength;
+              
+              // Base position
+              const baseX = centerX + (radius + radialOffset) * Math.cos(angle);
+              const baseY = centerY + (radius + radialOffset) * Math.sin(angle);
+              
+              // Compute tangential vector (perpendicular to radius vector)
+              const tangentX = -Math.sin(angle);
+              const tangentY = Math.cos(angle);
+              
+              // Final position with tangential jitter
+              const x = baseX + tangentX * tangentialOffset;
+              const y = baseY + tangentY * tangentialOffset;
+          
               graph.mergeNodeAttributes(node, { x, y });
           });
       }
-
 
       /*function placeNodesInRing(centerX, centerY, radius) {
           const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
@@ -655,7 +676,8 @@ defmodule IrohLogger do
     "red" => "#cc4d4d",
     "orange" => "#cc944d",
     "yellow" => "#cccc66",
-    "green" => "#3a6b3a"
+    "green" => "#3a6b3a",
+    "blue" => "#3a5f7a"
   }
 
   @brightness_levels [
@@ -668,6 +690,8 @@ defmodule IrohLogger do
     "CC",  # 80%
     "E6",  # 90%
   ]
+
+  @border_color "#CCCCB3"
 
   @impl true
   def init(config) do
@@ -697,7 +721,9 @@ defmodule IrohLogger do
           layout: "ring",
           size: get_node_size(Enum.count(nodes)),
           color: "grey",
-          label: "#{node_addr}"
+          label: "#{node_addr}",
+          type: "border",
+          borderColor: @border_color
         },
         true
       )
@@ -722,7 +748,9 @@ defmodule IrohLogger do
           layout: "ring",
           size: get_node_size(Enum.count(nodes)),
           color: "grey",
-          label: "#{node_addr}"
+          label: "#{node_addr}",
+          type: "border",
+          borderColor: @border_color
         }
       )
 
@@ -781,7 +809,9 @@ defmodule IrohLogger do
         peers_cnt == 0 -> vary_color("red", "E6")
         peers_cnt == 1 -> vary_color("orange", "E6")
         peers_cnt < 3 -> vary_color("yellow", "E6")
-        peers_cnt >= 3 -> vary_color("green", "E6")
+        #peers_cnt >= 3 -> vary_color("green", "E6")
+        peers_cnt < 6 -> vary_color("green", "E6")
+        true -> vary_color("blue", "CC")  # whale node = blue + 80% alpha
       end
 
     SigmaGraph.merge_node(
@@ -791,7 +821,9 @@ defmodule IrohLogger do
         layout: "ring",
         size: get_node_size(nodes_cnt) + grow_size,
         color: color,
-        label: "#{source} P:#{peers_cnt}"
+        label: "#{source} P:#{peers_cnt}",
+        type: "border",
+        borderColor: @border_color
       }
     )
 
@@ -840,7 +872,9 @@ defmodule IrohLogger do
       %{
         source: source,
         target: target,
-        props: %{ color: "#ddd" }
+        props: %{ color: "#ddd" },
+        type: "border",
+        borderColor: @border_color
       }
     )
     {:noreply, state}
