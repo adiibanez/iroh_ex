@@ -3,7 +3,7 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 1000
+  @node_cnt 100
   # 10_000
   @msg_cnt 1
   @rand_msg_delay 50

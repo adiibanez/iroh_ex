@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "acto"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dc24fb564460c494bb148dbfa4ec0eb4b5b3d761e9f88a0a3f1d7413c89046d"
+checksum = "52632fc65e2b2dac7eb4f62e94c494a48ceecc8d2b81c5748dd19694850b548b"
 dependencies = [
  "parking_lot",
  "pin-project-lite",
@@ -186,7 +186,7 @@ version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.1.19",
  "libc",
  "winapi",
 ]
@@ -1112,6 +1112,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hermit-abi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
+
+[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1654,8 +1660,7 @@ dependencies = [
 [[package]]
 name = "iroh-gossip"
 version = "0.34.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71a9d638618fb6a4dac68d59cb694774478ea039bc9afca4709e242726591be1"
+source = "git+https://github.com/n0-computer/iroh-gossip.git?rev=98b4a1b9f86f39575c7670d80facdb82659c004a#98b4a1b9f86f39575c7670d80facdb82659c004a"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1826,18 +1831,18 @@ dependencies = [
 
 [[package]]
 name = "iroh_ex"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "anyhow",
  "atty",
  "chrono",
  "data-encoding",
  "futures-lite",
- "hickory-resolver",
  "iroh",
  "iroh-gossip",
  "lazy_static",
  "n0-future",
+ "num_cpus",
  "once_cell",
  "rand 0.8.5",
  "rustler",
@@ -2281,6 +2286,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "num_cpus"
+version = "1.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
+dependencies = [
+ "hermit-abi 0.3.9",
+ "libc",
 ]
 
 [[package]]
@@ -3745,9 +3760,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.44.1"
+version = "1.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f382da615b842244d4b8738c82ed1275e6c5dd90c459a30941cd07080b06c91a"
+checksum = "e6b88822cbe49de4185e3a4cbf8321dd487cf5fe0c5c65695fef6346371e9c48"
 dependencies = [
  "backtrace",
  "bytes",
