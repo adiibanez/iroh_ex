@@ -456,7 +456,7 @@ async fn connect_node_async_internal(
         let mut state = node_ref.0.lock().unwrap(); // Locks the mutex
         let pid = state.pid; // Clone only what is needed
         // Now that state is unlocked, we can create the task safely
-        state.discovery_event_handler_task = Some(RUNTIME.spawn(log_discovery_stream(node_ref_clone.clone(), pid)));
+        // state.discovery_event_handler_task = Some(RUNTIME.spawn(log_discovery_stream(node_ref_clone.clone(), pid)));
         drop(state); // Explicitly drop the lock to avoid Send issues
     };
 
