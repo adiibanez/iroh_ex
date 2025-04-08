@@ -106,7 +106,8 @@ defmodule IrohEx.NodeManager do
     # kill all existing nodes
     IrohEx.NodeSupervisor.reset()
 
-    {:reply, IrohEx.NodeSupervisor.get_children(), state
+    {:reply, [], state
+      |> Map.put(:nodes_to_create, 0)
       |> Map.put(:mothership_node_ref, nil)
       |> Map.put(:ticket, nil)
     }
