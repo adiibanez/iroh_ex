@@ -5,7 +5,7 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.6"},
+  {:iroh_ex, "~> 0.0.7"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -719,7 +719,8 @@ defmodule IrohLogger do
         %{
           id: "#{node_addr}",
           layout: "ring",
-          size: get_node_size(Enum.count(nodes)),
+          # size: get_node_size(Enum.count(nodes)),
+          size: 4,
           color: "grey",
           label: "#{node_addr}",
           type: "border",
@@ -945,7 +946,7 @@ defmodule UIGenServer do
   end
 
   def handle_call({:config, key, value}, _from, state) do
-    # IO.puts("#{__MODULE__} :config #{key} #{value}")
+    IO.puts("#{__MODULE__} :config #{key} #{value}")
     {:reply, value, Map.put(state, key, value)}
   end
 
@@ -974,12 +975,15 @@ defmodule UIGenServer do
     delay_ms: delay_ms,
     manager_pid: manager_pid,
     logger_pid: logger_pid,
+    whale_node_prob: whale_node_prob,
     #delay_msg_ms: delay_msg_ms
   } = state) do
+
+    IO.puts("#{__MODULE__} handle_call :start_sim num_nodes:#{num_nodes}, whale:#{whale_node_prob}")
     Kino.DataTable.update(datatable, [])
     SigmaGraph.clear(graph)
 
-    GenServer.call(manager_pid, {:create_nodes, num_nodes, logger_pid, delay_ms}, 30_000)
+    GenServer.call(manager_pid, {:create_nodes, whale_node_prob, num_nodes, logger_pid, delay_ms}, 30_000)
     # why?
     Process.sleep(delay_ms)
 
@@ -1012,7 +1016,7 @@ defmodule UIGenServer do
     Process.send_after(node, {:send_message, msg}, msg_delay)
 
     {:reply, [], state
-      |> Map.put(:msg_counter, msg_counter + 1)
+      # |> Map.put(:msg_counter, msg_counter + 1)
     }
   end
 
@@ -1137,6 +1141,7 @@ graph = SigmaGraph.new()
 num_nodes = Kino.Input.number("Number of Nodes", default: 50, min: 3)
 delay_ms = Kino.Input.number("Delay after connecting a batch of nodes", default: 300, min: 0)
 delay_msg_ms = Kino.Input.number("Delay msg random", default: 500, min: 0)
+whale_node_prob = Kino.Input.range("Fraction of whale nodes %", default: 10, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 setup_button = Kino.Control.button("Setup nodes")
@@ -1175,7 +1180,8 @@ grid =
       delay_ms,
       #delay_msg_ms,
       # num_messages,
-      use_random
+      use_random,
+      whale_node_prob
     ], 
       columns: 2
     ),
@@ -1193,6 +1199,7 @@ num_messages_value = 1 # Kino.Input.read(num_messages) #Kino.Input.read(num_mess
 use_random_value = true # Kino.Input.read(use_random)
 delay_ms_value = Kino.Input.read(delay_ms)
 delay_msg_ms_value = 100 # Kino.Input.read(delay_msg_ms)
+whale_node_prob_value = Kino.Input.read(whale_node_prob)
 
 {:ok, ui_pid} = GenServer.start_link(UIGenServer, %{
   graph: graph,
@@ -1202,6 +1209,7 @@ delay_msg_ms_value = 100 # Kino.Input.read(delay_msg_ms)
   use_random: use_random_value, #Kino.Input.read(use_random),
   delay_ms: delay_ms_value, # Kino.Input.read(delay_ms),
   delay_msg_ms: delay_msg_ms_value, # Kino.Input.read(delay_msg_ms),
+  whale_node_prob: whale_node_prob_value
 })
 
 Kino.Control.tagged_stream(
@@ -1210,6 +1218,7 @@ Kino.Control.tagged_stream(
   use_random: use_random,
   delay_ms: delay_ms,
   delay_msg_ms: delay_msg_ms,
+  whale_node_prob: whale_node_prob,
   setup_button: setup_button,
   send_button: send_button,
   send_single_button: send_single_button,
