@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
+
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::Mutex;
 
@@ -21,7 +22,7 @@ pub struct ActorHandle<M> {
     sender: Sender<M>,
 }
 
-impl<M: Debug + Send + 'static> ActorHandle<M> {
+impl<M: Send + 'static> ActorHandle<M> {
     /// Create a new actor handle with the given sender
     pub fn new(sender: Sender<M>) -> Self {
         Self { sender }
@@ -37,7 +38,7 @@ impl<M: Debug + Send + 'static> ActorHandle<M> {
 pub async fn spawn<A, M>(mut actor: A, buffer: usize) -> ActorHandle<M>
 where
     A: Actor<Message = M> + Send + 'static,
-    M: Debug + Send + 'static,
+    M: Send + 'static,
 {
     let (sender, mut receiver) = mpsc::channel(buffer);
     let handle = ActorHandle::new(sender);
