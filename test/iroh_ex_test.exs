@@ -3,9 +3,9 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 100
+  @node_cnt 10
   # 10_000
-  @msg_cnt 1
+  @msg_cnt 10
   @rand_msg_delay 50
   @use_random_sender true
   @delay_after_connect 1000
@@ -167,7 +167,7 @@ defmodule IrohExTest do
     {:messages, messages} = :erlang.process_info(self(), :messages)
 
     # Write each message to a file correctly
-    File.open!("erlang_mailbox_dump.txt", [:write], fn file ->
+    File.open!("./logs/erlang_mailbox_dump.txt", [:write], fn file ->
       Enum.each(messages, fn msg ->
         IO.write(file, "#{inspect(msg, pretty: true)}\n")
       end)
@@ -175,7 +175,7 @@ defmodule IrohExTest do
 
     nodes_parsed = GossipParser.parse_gossip_messages(messages)
 
-    File.open!("gossip_nodes_dump.txt", [:write], fn file ->
+    File.open!("./logs/gossip_nodes_dump.txt", [:write], fn file ->
       Enum.each(nodes_parsed.nodes, fn msg ->
         IO.write(file, "#{inspect(msg, pretty: true)}\n")
       end)
@@ -184,7 +184,7 @@ defmodule IrohExTest do
     # mermaid_viz = MermaidGenerator.generate_mermaid_graph(nodes_parsed)
     mermaid_viz = MermaidGenerator.generate_mermaid_graph(nodes_parsed)
 
-    File.open!("gossip_nodes_mermaid.mmd", [:write], fn file ->
+    File.open!("./logs/gossip_nodes_mermaid.mmd", [:write], fn file ->
       IO.write(file, "#{mermaid_viz}\n")
     end)
 
@@ -229,13 +229,18 @@ defmodule IrohExTest do
     |> Enum.reverse()
   end
 
-  defp count_messages(acc \\ %{received: 0, discovered: 0, other: 0}, timeout \\ 500) do
+  defp count_messages(acc \\ %{received: 0, neighbor_up: 0, neighbor_down: 0, discovered: 0, other: 0}, timeout \\ 500) do
     receive do
       {:iroh_gossip_message_received, _node_source, _msg} ->
         count_messages(%{acc | received: acc.received + 1}, timeout)
 
       {:iroh_gossip_node_discovered, _node_source, _node_discovered} ->
         count_messages(%{acc | discovered: acc.discovered + 1}, timeout)
+
+      {:iroh_gossip_node_up, node_source, node_up, remote_info} ->
+        IO.puts(":iroh_gossip_node_up #{node_source} #{node_up} #{remote_info}")
+        count_messages(%{acc | neighbor_up: acc.neighbor_up + 1}, timeout)
+
 
       other_event ->
         IO.puts("Other event #{inspect(other_event)}")

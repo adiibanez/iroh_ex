@@ -59,6 +59,9 @@ use crate::tokio_runtime::RUNTIME;
 // pub static TOPIC_BYTES: Lazy<[u8; 32]> =
 //     Lazy::new(|| rand::random<[u8; 32]>().expect("Failed to create topic random bytes"));
 
+use crate::actor::ActorHandle;
+use crate::gossip_actor::GossipActorMessage;
+
 pub struct NodeRef(pub(crate) Arc<Mutex<NodeState>>);
 
 pub struct NodeState {
@@ -73,7 +76,7 @@ pub struct NodeState {
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
     pub event_handler_task: Option<JoinHandle<()>>,
     pub discovery_event_handler_task: Option<JoinHandle<()>>,
-    // pub discovery_stream_entries: HashMap<NodeId,
+    pub gossip_actor: Option<ActorHandle<GossipActorMessage>>,
 }
 
 impl NodeState {
@@ -98,7 +101,7 @@ impl NodeState {
             erlang_event_handler_task: None,
             event_handler_task: None,
             discovery_event_handler_task: None,
-            // mpsc_event_receiver,
+            gossip_actor: None,
         }
     }
 }
@@ -106,6 +109,17 @@ impl NodeState {
 impl Drop for NodeState {
     fn drop(&mut self) {
         // tracing::info!("🚀 Cleaning up NodeState before exit!");
+
+        if let Some(handle) = self.erlang_event_handler_task.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.event_handler_task.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.discovery_event_handler_task.take() {
+            handle.abort();
+        }
+
         let gossip = self.gossip.clone();
         let router = self.router.clone();
         let endpoint = self.endpoint.clone();
@@ -146,5 +160,6 @@ pub mod atoms {
         iroh_gossip_node_discovered,
         iroh_gossip_message_received,
         iroh_gossip_message_unhandled,
+        iroh_gossip_list_topics,
     }
 }

@@ -1,5 +1,4 @@
 defmodule IrohEx.Native do
-
   # use Rustler,
   #   otp_app: :iroh_ex,
   #   crate: :iroh_ex
@@ -60,9 +59,29 @@ defmodule IrohEx.Native do
   @spec generate_secretkey() :: {:ok, binary()} | {:error, term()}
   def generate_secretkey(), do: error()
 
+  @spec generate_secretkey() :: {:ok, reference()} | {:error, term()}
   def list_peers(_node), do: error()
 
+  @spec disconnect_node(reference()) :: {:ok} | {:error, term()}
   def disconnect_node(_node), do: error()
+
+
+
+  @spec subscribe_to_topic(reference(), binary(), [binary()]) :: {:ok, reference()} | {:error, term()}
+  def subscribe_to_topic(_node, _topic_str, _node_ids), do: error()
+
+  @spec unsubscribe_from_topic(reference(), binary()) :: {:ok, reference()} | {:error, term()}
+  def unsubscribe_from_topic(_node, _topic_str), do: error()
+
+  @spec broadcast_message(reference(), binary(), binary()) :: {:ok, reference()} | {:error, term()}
+  def broadcast_message(_node, _topic_str, _message), do: error()
+
+  @spec list_topics(reference()) :: {:ok, [binary()]} | {:error, term()}
+  def list_topics(_node), do: error()
+
+  @spec shutdown(reference()) :: :ok | {:error, term()}
+  def shutdown(_node), do: error()
+
 
   ## Handle NIF errors when Rust module isn't loaded
   defp error, do: :erlang.nif_error(:nif_not_loaded)

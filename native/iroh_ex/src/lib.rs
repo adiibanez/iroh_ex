@@ -10,13 +10,14 @@
 #![feature(mpmc_channel)]
 #![allow(clippy::too_many_arguments)]
 
-// use pprof::ProfilerGuard;
-
 use iroh::discovery::DiscoveryItem;
 use iroh::endpoint::RemoteInfo;
+use iroh::endpoint::Source;
+use iroh::PublicKey;
 use iroh::RelayMap;
 use iroh::RelayMode;
 use iroh::RelayUrl;
+use iroh::endpoint::ConnectionType;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
 };
@@ -51,24 +52,18 @@ use iroh::{
 
 use rand::rngs::OsRng;
 
-// use quic_rpc::transport::flume::FlumeConnector;
+use quic_rpc::transport::flume::FlumeConnector;
 
-// pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
-//     FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,
-// >;
-// pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
-//     FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,
-// >;
-
-// use iroh_gossip::{net::Gossip, ALPN as GossipALPN};
-// use iroh_gossip::proto::TopicId;
+pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
+    FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,>;
+pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
+    FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,>;
 
 use iroh_gossip::{
     net::{Event, Gossip, GossipEvent, GossipReceiver},
     proto::TopicId,
     ALPN as GossipALPN,
 };
-
 
 use serde::{Deserialize, Serialize};
 
@@ -82,22 +77,18 @@ use rand::distributions::Alphanumeric;
 mod state;
 mod tokio_runtime;
 mod wrappers;
+mod gossip_actor;
+mod actor;
+mod utils;
 
 use crate::state::NodeRef;
 use crate::state::ErlangMessageEvent;
 use crate::state::atoms;
 use crate::tokio_runtime::RUNTIME;
 use crate::state::NodeState;
-
 // use parking_lot::deadlock;
 
-
-// pub static RUNTIME: Lazy<Runtime> =
-//     Lazy::new(|| tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime"));
-
 const ALPN: &[u8] = b"iroh-example/echo/0";
-
-// const TOPIC_NAME: &str = "ehaaöskdjfasdjföasdjföa";
 
 static TOPIC_NAME: Lazy<String> = Lazy::new(generate_topic_name);
 
@@ -108,12 +99,6 @@ fn generate_topic_name() -> String {
         .map(char::from) // Convert u8 to char
         .collect()
 }
-
-// const topic_bytes = rand::random();
-// static topic_bytes: [u8; 32] = rand::random();
-
-// pub static TOPIC_BYTES: Lazy<[u8; 32]> =
-//     Lazy::new(|| rand::random<[u8; 32]>().expect("Failed to create topic random bytes"));
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Message {
@@ -175,6 +160,8 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
                 .expect("Failed to parse RELAY_URL");
             let relay_map = RelayMap::from_url(relay_url);
             RelayMode::Custom(relay_map)
+        } else if env::var("RELAY_DISABLED").is_ok() {
+            RelayMode::Disabled
         } else if env::var("RELAY_EU_ONLY").is_ok() {
             let relay_url = RelayUrl::from_str("https://euw1-1.relay.iroh.network./")
                 .expect("Failed to parse hardcoded EU relay URL");
@@ -183,12 +170,12 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
         } else {
             RelayMode::Default
         };
+        
+        tracing::info!("RELAY config {:?}", relay_mode);
 
         let endpoint_builder = Endpoint::builder()
-            // .relay_mode(iroh::RelayMode::Custom((RelayMap::from_url(url: RelayUrl::from_str())))
-            // .relay_mode(iroh::RelayMode::Custom((<RelayMap as Example>::from_url { url: RelayUrl::from_str() })))
             .relay_mode(relay_mode)
-            .discovery_n0()
+            // .discovery_n0()
             .discovery_local_network();
 
         let endpoint: Endpoint = endpoint_builder.bind()
@@ -197,7 +184,7 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
 
             
         let endpoint_clone = endpoint.clone();
-        let builder = iroh::protocol::Router::builder(endpoint.clone());
+        let router_builder = iroh::protocol::Router::builder(endpoint.clone());
 
         let hyparview_config = if is_whale_node {
             iroh_gossip::proto::HyparviewConfig {
@@ -216,7 +203,7 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
             .await
             .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {}", e))))?;
 
-        let router = builder
+        let router = router_builder
             .accept(GossipALPN, gossip.clone())
             .accept(ALPN, Echo)
             .spawn()
@@ -437,28 +424,27 @@ async fn connect_node_async_internal(
 
     let Ticket { topic, nodes } = Ticket::from_str(&ticket).context("❌ Failed to parse ticket")?;
 
-    let (endpoint_conn, gossip, node_id, node_id_short, erlang_sender_clone) = {
+    let (endpoint, gossip, node_id, node_id_short, erlang_sender_clone) = {
         let state = resource_arc.lock().unwrap();
         (
-            state.endpoint.clone(),
-            state.gossip.clone(),
-            state.endpoint.node_id(),
+            state.endpoint.clone() as Endpoint,
+            state.gossip.clone() as Gossip,
+            state.endpoint.node_id() as PublicKey,
             state.endpoint.node_id().fmt_short(),
             state.mpsc_event_sender.clone(),
         )
     };
 
-    let endpoint_clone = endpoint_conn.clone();
-
+    let endpoint_clone = endpoint.clone();
     let node_ref_clone = node_ref.clone();
 
-    {
-        let mut state = node_ref.0.lock().unwrap(); // Locks the mutex
-        let pid = state.pid; // Clone only what is needed
-        // Now that state is unlocked, we can create the task safely
-        // state.discovery_event_handler_task = Some(RUNTIME.spawn(log_discovery_stream(node_ref_clone.clone(), pid)));
-        drop(state); // Explicitly drop the lock to avoid Send issues
-    };
+    // {
+    //     let mut state = node_ref.0.lock().unwrap(); // Locks the mutex
+    //     let pid = state.pid; // Clone only what is needed
+    //     // Now that state is unlocked, we can create the task safely
+    //     state.discovery_event_handler_task = Some(RUNTIME.spawn(log_discovery_stream(node_ref_clone.clone(), pid)));
+    //     drop(state); // Explicitly drop the lock to avoid Send issues
+    // };
 
     // Re-lock the state and store the handle safely
     {
@@ -468,7 +454,7 @@ async fn connect_node_async_internal(
 
     tracing::debug!(
         "connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}",
-        &endpoint_conn as *const _,
+        &endpoint as *const _,
         topic,
         nodes
     );
@@ -514,16 +500,6 @@ async fn connect_node_async_internal(
         );
     }
 
-    // if let Err(e) = msg_env.send_and_clear(&pid, |env| {
-    //     (
-    //         atoms::ok(),
-    //         "Hello from connect_node_async_internal before inner",
-    //     )
-    //         .encode(env)
-    // }) {
-    //     tracing::debug!("⚠️ Failed to send unhandled message: {:?}", e);
-    // }
-
     let pid_clone = pid;
 
     let erlang_sender_clone_inner = erlang_sender_clone.clone();
@@ -567,21 +543,50 @@ async fn connect_node_async_internal(
                                 tracing::warn!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
                             }
                         }
+
+                        // GossipReceiver::neighbors
+
                         Event::Gossip(GossipEvent::NeighborUp(pub_key)) => {
                             tracing::debug!("NeighborUp {:?}", pub_key);
 
-                            if let Err(e) = erlang_sender_clone
-                                .send(ErlangMessageEvent {
-                                    atom: atoms::iroh_gossip_neighbor_up(),
-                                    payload: vec![
-                                        node_id_short_clone.clone(),
-                                        pub_key.clone().fmt_short(),
-                                    ],
-                                })
-                                .await
-                            {
-                                tracing::warn!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
+                            let remote_pubkey_opt = receiver
+                                .neighbors()
+                                .find(|n| n.fmt_short() != node_id_short_clone);
+
+                            if let Some(remote_pubkey) = remote_pubkey_opt {
+                                let remote_info_string = if let Some(remote_info) = endpoint_clone
+                                    .remote_info_iter()
+                                    .find(|r| r.node_id != remote_pubkey)
+                                {
+                                    serde_json::to_string(&remote_info_to_map(&remote_info))
+                                        .unwrap_or_else(|_| "{}".to_string())
+                                } else {
+                                    "{}".to_string()
+                                };
+
+                                if let Err(e) = erlang_sender_clone
+                                    .send(ErlangMessageEvent {
+                                        atom: atoms::iroh_gossip_neighbor_up(),
+                                        payload: vec![
+                                            node_id_short_clone.clone(),
+                                            pub_key.clone().fmt_short(),
+                                            remote_info_string
+                                        ],
+                                    })
+                                    .await
+                                {
+                                    tracing::warn!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
+                                }
+                                // Do something with `others`...
                             }
+
+                            // .filter(|n| n.node_id != node_addr.node_id)
+                    // .collect::<Vec<_>>();
+
+                // for info in &remote_info_vec {
+                //     tracing::info!("{}", format_remote_info(info));
+                // }
+
                         }
                         Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
                             tracing::debug!("NeighborDown {:?}", pub_key);
@@ -665,8 +670,62 @@ async fn connect_node_async_internal(
     Ok(())
 }
 
+
+use std::collections::HashMap;
+
+fn remote_info_to_map(info: &RemoteInfo) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+
+    map.insert("node_id".to_string(), format!("{}", info.node_id));
+
+    // if let Some(relay) = &info.relay_url {
+    //     map.insert("relay_url".to_string(), relay.relay_url.to_string());
+    // }
+
+    if let Some(latency) = info.latency {
+        map.insert("latency".to_string(), format!("{:?}", latency));
+    }
+
+    if let Some(last_used) = info.last_used {
+        map.insert("last_used".to_string(), format!("{:?}", last_used));
+    }
+
+    match &info.conn_type {
+        ConnectionType::Direct(addr) => {
+            map.insert("conn_type".to_string(), "Direct".to_string());
+            // map.insert("conn_addr".to_string(), addr.to_string());
+        }
+        ConnectionType::Relay(url) => {
+            map.insert("conn_type".to_string(), "Relay".to_string());
+            map.insert("relay_conn_url".to_string(), url.to_string());
+        }
+        ConnectionType::Mixed(addr, url) => {
+            map.insert("conn_type".to_string(), "Mixed".to_string());
+            // map.insert("conn_addr".to_string(), addr.to_string());
+            map.insert("relay_conn_url".to_string(), url.to_string());
+        }
+        ConnectionType::None => {
+            map.insert("conn_type".to_string(), "None".to_string());
+        }
+    }
+
+    // addrs intentionally skipped
+
+    map
+}
+
+
 #[rustler::nif(schedule = "DirtyCpu")]
 fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
+    let node = node_ref.0.clone();
+
+    let endpoint = {
+        let state = node_ref.0.lock().unwrap();
+        state.endpoint.clone() as Endpoint
+    };
+
+    endpoint.close();
+
     // let node = node_ref.lock().unwrap();
     // node.disconnect_all();  // Assuming an API to disconnect all peers
     Ok(())
@@ -678,24 +737,34 @@ fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
 
     let endpoint = {
         let state = node_ref.0.lock().unwrap();
-        state.endpoint.clone()
+        state.endpoint.clone() as Endpoint
     };
 
-    //endpoint.discovery_stream();
+    let remote_info_vec: Vec<RemoteInfo> = endpoint
+                    .remote_info_iter()
+                    // .filter(|n| n.node_id != node_addr.node_id)
+                    .collect::<Vec<_>>();
 
-    let peers: Vec<_> = vec![]; //node.peers().iter().map(|p| p.to_string()).collect();
+    for info in &remote_info_vec {
+        tracing::info!("{}", format_remote_info(info));
+    }
+    
+    //let peers: Vec<_> = vec![]; 
+    let peers: Vec<_> = remote_info_vec.iter().map(|ri| {
+        let latency_str = match ri.latency {
+            Some(latency) => format!("{:?}", latency),
+            None => "N/A".to_string(),
+        };
+        format!("node_id:{:?},conn_type:{:?},latency:{}", ri.node_id.fmt_short(), ri.conn_type, latency_str)
+    }).collect();
     Ok(peers)
 }
-
-
 
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn cleanup(
     env: Env,
     node_ref: ResourceArc<NodeRef>,
 ) -> NifResult<()> {
-    let node_ref_clone = node_ref.clone();
-
     let resource_arc = node_ref.0.clone();
 
     let (pid, monitor_ref) = {
@@ -703,7 +772,7 @@ pub fn cleanup(
         (state.pid, state.monitor_ref)
     };
 
-     if let Some(ref monitor) = monitor_ref {
+    if let Some(ref monitor) = monitor_ref {
         env.demonitor(&node_ref, monitor);
     }
     drop(node_ref);
@@ -760,16 +829,23 @@ async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
 
                 let remote_info_vec: Vec<RemoteInfo> = endpoint
                     .remote_info_iter()
-                    // .filter(|n| n.node_id != node_addr.node_id)
+                    .filter(|n| n.node_id != node_addr.node_id)
                     .collect::<Vec<_>>();
 
-                tracing::info!(
-                    "🔍 {:?} Discovered Node: {:?}, latency: {:?}",
-                    endpoint.node_id().fmt_short(),
-                    node_addr,
-                    remote_info_vec
-                    // remote_info.latency
-                );
+                for info in &remote_info_vec {
+                    tracing::info!("{}", format_remote_info(info));
+                }
+
+                // tracing::info!(
+                //     "🔍 {:?} Discovered Node: {:?}",
+                //     endpoint.node_id().fmt_short(),
+                //     node_addr,
+                //     // remote_info_vec
+                //     //     .iter()
+                //     //     .map(|info| format!("{:?}", info)) // or use `to_string()` if `Display` is implemented
+                //     //     .collect::<Vec<_>>()
+                //     //     .join("\n\n")
+                // );
 
                 // if let Err(e) = erlang_sender_clone
                 //     .send(ErlangMessageEvent {
@@ -796,6 +872,45 @@ async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
                 );
             }
         }
+    }
+}
+
+
+fn format_remote_info(info: &RemoteInfo) -> String {
+    let mut out = String::new();
+
+    use std::fmt::Write;
+
+    writeln!(out, "🧩 Node: {}", info.node_id.fmt_short()).ok();
+    writeln!(out, "  Relay: {}", info.relay_url.as_ref().map(|r| r.relay_url.to_string()).unwrap_or("None".into())).ok();
+    writeln!(out, "  Conn Type: {:?}", info.conn_type);
+    writeln!(out, "  Latency: {:?}", info.latency);
+    writeln!(out, "  Addresses:");
+
+    for addr in &info.addrs {
+        writeln!(out, "    - {}", addr.addr).ok();
+        if let Some(lat) = addr.latency {
+            writeln!(out, "      ↳ Latency: {:?}", lat).ok();
+        } else {
+            writeln!(out, "      ↳ Latency: N/A").ok();
+        }
+
+        writeln!(out, "      ↳ Sources:").ok();
+        for (src, age) in &addr.sources {
+            writeln!(out, "          • {}: {:?}", source_display_name(src), age).ok();
+        }
+    }
+    out
+}
+
+fn source_display_name(src: &Source) -> String {
+    match src {
+        Source::Discovery { name } => format!("Discovery ({})", name),
+        Source::NamedApp { name } => format!("NamedApp ({})", name),
+        Source::Saved => "Saved".to_string(),
+        Source::Udp => "Udp".to_string(),
+        Source::Relay => "Relay".to_string(),
+        Source::App => "App".to_string(),
     }
 }
 
@@ -873,7 +988,7 @@ fn add(a: i64, b: i64) -> i64 {
 // pub fn start_continuous_flamegraph(interval_secs: u64) {
 //     thread::spawn(move || {
 //         loop {
-//             let guard = match ProfilerGuard::new(100) {
+//             let guard = match pprof::ProfilerGuard::new(100) {
 //                 Ok(g) => g,
 //                 Err(e) => {
 //                     eprintln!("🔥 Failed to create profiler guard: {:?}", e);
@@ -910,8 +1025,6 @@ fn add(a: i64, b: i64) -> i64 {
 //     });
 // }
 
-
-
 fn on_load(env: Env, _info: Term) -> bool {
     // let _ = console_subscriber::init();
     // setup_console_subscriber_once();
@@ -925,8 +1038,6 @@ fn on_load(env: Env, _info: Term) -> bool {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
-
-    tracing::debug!("Debug message from iroh_ex!");
 
     println!("Initializing Rust Iroh NIF module ...");
     rustler::resource!(NodeRef, env);
