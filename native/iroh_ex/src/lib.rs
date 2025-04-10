@@ -22,10 +22,9 @@ use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
 };
 use rustler::types::atom::Atom;
-
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-
+use tokio::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 use rand::Rng;
@@ -606,17 +605,28 @@ async fn connect_node_async_internal(
                         Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
                             tracing::debug!("NeighborDown {:?}", pub_key);
 
-                            if let Err(e) = erlang_sender_clone
-                                .send(ErlangMessageEvent {
-                                    atom: atoms::iroh_gossip_neighbor_down(),
-                                    payload: Payload::List(vec![
-                                        Payload::String(node_id_short_clone.clone()),
-                                        Payload::String(pub_key.clone().fmt_short()),
-                                    ]),
-                                })
-                                .await
-                            {
-                                tracing::warn!("❌ GossipEvent::NeighborDown Failed to send erlang message: {:?}", e);
+                            // Ensure we have a valid sender before attempting to send
+                            if erlang_sender_clone.is_closed() {
+                                tracing::error!("❌ GossipEvent::NeighborDown: erlang_sender_clone is closed");
+                                continue;
+                            }
+
+                            let event = ErlangMessageEvent {
+                                atom: atoms::iroh_gossip_neighbor_down(),
+                                payload: Payload::List(vec![
+                                    Payload::String(node_id_short_clone.clone()),
+                                    Payload::String(pub_key.clone().fmt_short()),
+                                ]),
+                            };
+
+                            match erlang_sender_clone.send(event).await {
+                                Ok(_) => {
+                                    tracing::debug!("✅ NeighborDown event sent successfully");
+                                }
+                                Err(e) => {
+                                    tracing::error!("❌ GossipEvent::NeighborDown Failed to send erlang message: {:?}", e);
+                                    // Try to reconnect or handle the error appropriately
+                                }
                             }
                         }
                         Event::Gossip(GossipEvent::Received(msg)) => {
@@ -782,17 +792,25 @@ pub fn cleanup(
     env: Env,
     node_ref: ResourceArc<NodeRef>,
 ) -> NifResult<()> {
-    let resource_arc = node_ref.0.clone();
-
-    let (pid, monitor_ref) = {
-        let state = resource_arc.lock().unwrap();
-        (state.pid, state.monitor_ref)
+    // Get the monitor ref before dropping
+    let monitor_ref = {
+        let state = node_ref.0.lock().unwrap();
+        state.monitor_ref.clone()
     };
 
+    // Demonitor if needed
     if let Some(ref monitor) = monitor_ref {
         env.demonitor(&node_ref, monitor);
     }
+
+    // Drop the ResourceArc which will trigger NodeState::drop
     drop(node_ref);
+
+    // Give the runtime a chance to complete cleanup
+    RUNTIME.block_on(async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    });
+
     Ok(())
 }
 
