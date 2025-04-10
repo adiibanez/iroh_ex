@@ -26,6 +26,7 @@ rustler = { git = "https://github.com/filmor/rustler.git", rev = "17740a6dc39c79
 # iroh = {version = "0.34.1", git = "https://github.com/n0-computer/iroh.git", rev = "42b605e53d89c89faf0f63a86bf48d0039ea53b4", features = ["discovery-local-network"]}
 # iroh = { git = "https://github.com/n0-computer/iroh.git", branch = "main", features = ["discovery-local-network"]}
 iroh = {version = "0.34.1", features = ["discovery-local-network"]}
+# iroh-net = { git = "https://github.com/n0-computer/iroh.git", rev = "98b4a1b9f86f39575c7670d80facdb82659c004a" }
 
 # , rev = "8064448e7923960931728c256877138f33ca8282"
 # , rev = "22bf681a7db49da735c25ca831cd94c206e53a48"

@@ -3,9 +3,9 @@ defmodule IrohExTest do
   doctest IrohEx
   alias IrohEx.Native
 
-  @node_cnt 10
+  @node_cnt 100
   # 10_000
-  @msg_cnt 10
+  @msg_cnt 200
   @rand_msg_delay 50
   @use_random_sender true
   @delay_after_connect 1000

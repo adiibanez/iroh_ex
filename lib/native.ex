@@ -65,8 +65,6 @@ defmodule IrohEx.Native do
   @spec disconnect_node(reference()) :: {:ok} | {:error, term()}
   def disconnect_node(_node), do: error()
 
-
-
   @spec subscribe_to_topic(reference(), binary(), [binary()]) :: {:ok, reference()} | {:error, term()}
   def subscribe_to_topic(_node, _topic_str, _node_ids), do: error()
 

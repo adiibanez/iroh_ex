@@ -21,6 +21,7 @@ use iroh::endpoint::ConnectionType;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
 };
+use rustler::types::atom::Atom;
 
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
@@ -81,7 +82,7 @@ mod actor;
 mod utils;
 
 use crate::state::NodeRef;
-use crate::state::ErlangMessageEvent;
+use crate::state::{ErlangMessageEvent, Payload};
 use crate::state::atoms;
 use crate::tokio_runtime::RUNTIME;
 use crate::state::NodeState;
@@ -95,7 +96,7 @@ fn generate_topic_name() -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(20)
-        .map(char::from) // Convert u8 to char
+        .map(char::from)
         .collect()
 }
 
@@ -125,12 +126,8 @@ fn string_to_32_byte_array(s: &str) -> [u8; 32] {
 
 #[rustler::nif]
 pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
-    let mut rng = OsRng; // Create an instance of OsRng
+    let mut rng = OsRng;
     let secret_key = SecretKey::generate(&mut rng);
-
-    // let secret_key = SecretKey::generate(OsRng);
-    //println!("secret key: {secret_key}");
-    // let secret_key = "blabalba";
     Ok(secret_key.to_string())
 }
 
@@ -248,8 +245,22 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
 
             while let Some(event) = mpsc_event_receiver.recv().await {
                 if let Err(e) = msg_env.send_and_clear(&handler_pid, |env| {
-                    let terms: Vec<Term> =
-                        event.payload.iter().map(|s| s.encode(env)).collect();
+                    let terms: Vec<Term> = match event.payload {
+                        Payload::String(s) => vec![s.encode(env)],
+                        Payload::Binary(b) => vec![b.encode(env)],
+                        Payload::Tuple(t) => t.iter().map(|p| p.encode(env)).collect(),
+                        Payload::Map(m) => {
+                            let mut terms = Vec::new();
+                            for (k, v) in m {
+                                terms.push(k.encode(env));
+                                terms.push(v.encode(env));
+                            }
+                            terms
+                        },
+                        Payload::List(l) => l.iter().map(|p| p.encode(env)).collect(),
+                        Payload::Integer(i) => vec![i.encode(env)],
+                        Payload::Float(f) => vec![f.encode(env)],
+                    };
 
                     match terms.len() {
                         0 => event.atom.encode(env),
@@ -489,7 +500,10 @@ async fn connect_node_async_internal(
     if let Err(e) = erlang_sender_clone
         .send(ErlangMessageEvent {
             atom: atoms::iroh_node_connected(),
-            payload: vec![node_id.fmt_short(), relay_url.as_str().to_string()],
+            payload: Payload::List(vec![
+                Payload::String(node_id.fmt_short()),
+                Payload::String(relay_url.as_str().to_string()),
+            ]),
         })
         .await
     {
@@ -531,11 +545,13 @@ async fn connect_node_async_internal(
                             if let Err(e) = erlang_sender_clone
                                 .send(ErlangMessageEvent {
                                     atom: atoms::iroh_gossip_joined(),
-                                    payload: vec![pub_keys
-                                        .iter()
-                                        .map(|pk| pk.fmt_short())
-                                        .collect::<Vec<_>>()
-                                        .join(",")],
+                                    payload: Payload::List(vec![
+                                        Payload::String(pub_keys
+                                            .iter()
+                                            .map(|pk| pk.fmt_short())
+                                            .collect::<Vec<_>>()
+                                            .join(",")),
+                                    ]),
                                 })
                                 .await
                             {
@@ -566,11 +582,11 @@ async fn connect_node_async_internal(
                                 if let Err(e) = erlang_sender_clone
                                     .send(ErlangMessageEvent {
                                         atom: atoms::iroh_gossip_neighbor_up(),
-                                        payload: vec![
-                                            node_id_short_clone.clone(),
-                                            pub_key.clone().fmt_short(),
-                                            remote_info_string
-                                        ],
+                                        payload: Payload::List(vec![
+                                            Payload::String(node_id_short_clone.clone()),
+                                            Payload::String(pub_key.clone().fmt_short()),
+                                            Payload::String(remote_info_string),
+                                        ]),
                                     })
                                     .await
                                 {
@@ -593,10 +609,10 @@ async fn connect_node_async_internal(
                             if let Err(e) = erlang_sender_clone
                                 .send(ErlangMessageEvent {
                                     atom: atoms::iroh_gossip_neighbor_down(),
-                                    payload: vec![
-                                        node_id_short_clone.clone(),
-                                        pub_key.clone().fmt_short(),
-                                    ],
+                                    payload: Payload::List(vec![
+                                        Payload::String(node_id_short_clone.clone()),
+                                        Payload::String(pub_key.clone().fmt_short()),
+                                    ]),
                                 })
                                 .await
                             {
@@ -614,10 +630,10 @@ async fn connect_node_async_internal(
                                         if let Err(e) = erlang_sender_clone
                                             .send(ErlangMessageEvent {
                                                 atom: atoms::iroh_gossip_message_received(),
-                                                payload: vec![
-                                                    node_id_short_clone.clone(),
-                                                    name.clone(),
-                                                ],
+                                                payload: Payload::List(vec![
+                                                    Payload::String(node_id_short_clone.clone()),
+                                                    Payload::String(name.clone()),
+                                                ]),
                                             })
                                             .await
                                         {
@@ -643,7 +659,9 @@ async fn connect_node_async_internal(
                             if let Err(e) = erlang_sender_clone
                                 .send(ErlangMessageEvent {
                                     atom: atoms::iroh_gossip_message_unhandled(),
-                                    payload: vec![message],
+                                    payload: Payload::List(vec![
+                                        Payload::String(message),
+                                    ]),
                                 })
                                 .await
                             {

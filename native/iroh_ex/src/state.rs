@@ -10,27 +10,28 @@
 
 // use pprof::ProfilerGuard;
 
-use rustler::{LocalPid, Monitor};
-
+use crate::actor::ActorHandle;
+use crate::gossip_actor::GossipActorMessage;
+use iroh::{
+    endpoint::Connection,
+    protocol::{ProtocolHandler, Router},
+    Endpoint, NodeAddr, NodeId, PublicKey, SecretKey,
+};
+use iroh_gossip::net::{Gossip, GossipSender};
+use rustler::{Atom, Encoder, Env, LocalPid, Monitor, OwnedEnv, Term};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 
 // use std::sync::mpmc::Sender;
 // use std::sync::mpmc::Receiver;
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
-use tokio::sync::mpsc;
+use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
 
 // use tracing_subscriber::{Registry, prelude::*};
 // use console_subscriber::ConsoleLayer;
-
-use iroh::{
-    protocol::{ProtocolHandler, Router},
-    Endpoint, NodeId,
-};
 
 // use quic_rpc::transport::flume::FlumeConnector;
 
@@ -44,8 +45,6 @@ use iroh::{
 // use iroh_gossip::{net::Gossip, ALPN as GossipALPN};
 // use iroh_gossip::proto::TopicId;
 
-use iroh_gossip::net::{Gossip, GossipSender};
-
 use crate::tokio_runtime::RUNTIME;
 
 // use parking_lot::deadlock;
@@ -58,9 +57,6 @@ use crate::tokio_runtime::RUNTIME;
 
 // pub static TOPIC_BYTES: Lazy<[u8; 32]> =
 //     Lazy::new(|| rand::random<[u8; 32]>().expect("Failed to create topic random bytes"));
-
-use crate::actor::ActorHandle;
-use crate::gossip_actor::GossipActorMessage;
 
 pub struct NodeRef(pub(crate) Arc<Mutex<NodeState>>);
 
@@ -136,9 +132,46 @@ impl Drop for NodeState {
 }
 
 #[derive(Debug)]
+pub enum Payload {
+    String(String),
+    Binary(Vec<u8>),
+    Tuple(Vec<Payload>),
+    Map(Vec<(Payload, Payload)>),
+    List(Vec<Payload>),
+    Integer(i64),
+    Float(f64),
+}
+
+impl Payload {
+    pub fn encode<'a>(&self, env: Env<'a>) -> Term<'a> {
+        match self {
+            Payload::String(s) => s.encode(env),
+            Payload::Binary(b) => b.encode(env),
+            Payload::Tuple(t) => {
+                let terms: Vec<Term> = t.iter().map(|p| p.encode(env)).collect();
+                terms.encode(env)
+            }
+            Payload::Map(m) => {
+                let mut map = Term::map_new(env);
+                for (k, v) in m {
+                    map = map.map_put(k.encode(env), v.encode(env)).unwrap();
+                }
+                map
+            }
+            Payload::List(l) => {
+                let terms: Vec<Term> = l.iter().map(|p| p.encode(env)).collect();
+                terms.encode(env)
+            }
+            Payload::Integer(i) => i.encode(env),
+            Payload::Float(f) => f.encode(env),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ErlangMessageEvent {
-    pub atom: rustler::Atom,
-    pub payload: Vec<String>,
+    pub atom: Atom,
+    pub payload: Payload,
 }
 
 pub mod atoms {

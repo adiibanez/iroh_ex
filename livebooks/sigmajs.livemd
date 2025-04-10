@@ -5,7 +5,7 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.7"},
+  {:iroh_ex, "~> 0.0.8"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -788,8 +788,8 @@ defmodule IrohLogger do
   end
 
   @impl true
-  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
-    IO.puts("Neighbor up: #{source} #{target}")
+  def handle_info({:iroh_gossip_neighbor_up, source, target, remote_info}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
+    IO.puts("Neighbor up: #{source} #{target} #{remote_info}")
 
     new_peers = case peers[source] do
       nil -> [target]
@@ -1141,7 +1141,7 @@ graph = SigmaGraph.new()
 num_nodes = Kino.Input.number("Number of Nodes", default: 50, min: 3)
 delay_ms = Kino.Input.number("Delay after connecting a batch of nodes", default: 300, min: 0)
 delay_msg_ms = Kino.Input.number("Delay msg random", default: 500, min: 0)
-whale_node_prob = Kino.Input.range("Fraction of whale nodes %", default: 10, min: 0)
+whale_node_prob = Kino.Input.range("Whale Node Ratio (%)", default: 10, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 setup_button = Kino.Control.button("Setup nodes")

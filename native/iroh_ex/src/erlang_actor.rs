@@ -9,6 +9,8 @@ use tokio::sync::mpsc;
 
 use crate::state::atoms;
 use crate::state::ErlangMessageEvent;
+use crate::state::Payload;
+
 // 1. Define the message types for the actor
 #[derive(Debug)]
 enum ErlangEventHandlerMessage {
@@ -61,7 +63,23 @@ impl ErlangEventHandlerActor {
         }
         let mut env = self.env.lock().unwrap();
         env.send_and_clear(&self.pid, |env| {
-            let terms: Vec<Term> = event.payload.iter().map(|s| s.encode(env)).collect();
+            let terms: Vec<Term> = match &event.payload {
+                Payload::String(s) => vec![s.encode(env)],
+                Payload::Binary(b) => vec![b.encode(env)],
+                Payload::Tuple(t) => t.iter().map(|p| p.encode(env)).collect(),
+                Payload::Map(m) => {
+                    let mut terms = Vec::new();
+                    for (k, v) in m {
+                        terms.push(k.encode(env));
+                        terms.push(v.encode(env));
+                    }
+                    terms
+                }
+                Payload::List(l) => l.iter().map(|p| p.encode(env)).collect(),
+                Payload::Integer(i) => vec![i.encode(env)],
+                Payload::Float(f) => vec![f.encode(env)],
+            };
+
             match terms.len() {
                 0 => event.atom.encode(env),
                 1 => (event.atom, terms[0]).encode(env),

@@ -17,6 +17,7 @@ use crate::state::atoms;
 use crate::state::ErlangMessageEvent;
 use crate::state::NodeRef;
 use crate::state::NodeState;
+use crate::state::Payload;
 use crate::tokio_runtime::RUNTIME;
 use crate::utils::string_to_32_byte_array;
 
@@ -42,17 +43,23 @@ struct TopicSubscription {
 }
 
 // 2. Enhanced message types to handle multiple topics
+/// Wrapper for GossipEvent that ensures thread safety.
+///
+/// This wrapper is necessary because:
+/// 1. The actor system runs in a separate thread from the gossip network
+/// 2. GossipEvent from iroh_gossip isn't marked as thread-safe
+/// 3. We need to send events across thread boundaries through channels
+///
+/// The unsafe Send/Sync implementations are safe because:
+/// - We control how the events are created and handled
+/// - Events are only accessed by the actor in its dedicated thread
+/// - The actor system provides proper synchronization
 #[derive(Debug)]
-pub struct GossipEventWrapper(GossipNetEvent);
+pub struct GossipEventWrapper(GossipEvent);
 
 impl Clone for GossipEventWrapper {
     fn clone(&self) -> Self {
-        match &self.0 {
-            GossipNetEvent::Gossip(event) => {
-                GossipEventWrapper(GossipNetEvent::Gossip(event.clone()))
-            }
-            GossipNetEvent::Lagged => GossipEventWrapper(GossipNetEvent::Lagged),
-        }
+        GossipEventWrapper(self.0.clone())
     }
 }
 
@@ -146,14 +153,16 @@ impl GossipActor {
                                 if let Err(e) = erlang_sender
                                     .send(ErlangMessageEvent {
                                         atom: atoms::iroh_gossip_joined(),
-                                        payload: vec![
-                                            topic_id.to_string(),
-                                            pub_keys
-                                                .iter()
-                                                .map(|pk| pk.fmt_short())
-                                                .collect::<Vec<_>>()
-                                                .join(","),
-                                        ],
+                                        payload: Payload::List(vec![
+                                            Payload::String(topic_id.to_string()),
+                                            Payload::String(
+                                                pub_keys
+                                                    .iter()
+                                                    .map(|pk| pk.fmt_short())
+                                                    .collect::<Vec<_>>()
+                                                    .join(","),
+                                            ),
+                                        ]),
                                     })
                                     .await
                                 {
@@ -164,7 +173,10 @@ impl GossipActor {
                                 if let Err(e) = erlang_sender
                                     .send(ErlangMessageEvent {
                                         atom: atoms::iroh_gossip_neighbor_up(),
-                                        payload: vec![topic_id.to_string(), pub_key.fmt_short()],
+                                        payload: Payload::List(vec![
+                                            Payload::String(topic_id.to_string()),
+                                            Payload::String(pub_key.fmt_short()),
+                                        ]),
                                     })
                                     .await
                                 {
@@ -175,7 +187,10 @@ impl GossipActor {
                                 if let Err(e) = erlang_sender
                                     .send(ErlangMessageEvent {
                                         atom: atoms::iroh_gossip_neighbor_down(),
-                                        payload: vec![topic_id.to_string(), pub_key.fmt_short()],
+                                        payload: Payload::List(vec![
+                                            Payload::String(topic_id.to_string()),
+                                            Payload::String(pub_key.fmt_short()),
+                                        ]),
                                     })
                                     .await
                                 {
@@ -191,11 +206,11 @@ impl GossipActor {
                                             if let Err(e) = erlang_sender
                                                 .send(ErlangMessageEvent {
                                                     atom: atoms::iroh_gossip_message_received(),
-                                                    payload: vec![
-                                                        topic_id.to_string(),
-                                                        from.fmt_short(),
-                                                        name,
-                                                    ],
+                                                    payload: Payload::List(vec![
+                                                        Payload::String(topic_id.to_string()),
+                                                        Payload::String(from.fmt_short()),
+                                                        Payload::String(name),
+                                                    ]),
                                                 })
                                                 .await
                                             {
@@ -291,62 +306,65 @@ impl GossipActor {
                 self.handle_unsubscribe(topic_id).await?;
             }
             GossipActorMessage::Broadcast { topic_id, data } => {
-                self.handle_broadcast(topic_id, data).await?;
+                self.handle_broadcast(topic_id, data.clone()).await?;
             }
             GossipActorMessage::Event { topic_id, event } => match event.0 {
-                GossipNetEvent::Gossip(gossip_event) => match gossip_event {
-                    GossipEvent::Joined(pub_keys) => {
-                        self.erlang_sender
-                            .send(ErlangMessageEvent {
-                                atom: atoms::iroh_gossip_joined(),
-                                payload: vec![
-                                    topic_id.to_string(),
+                GossipEvent::Joined(pub_keys) => {
+                    self.erlang_sender
+                        .send(ErlangMessageEvent {
+                            atom: atoms::iroh_gossip_joined(),
+                            payload: Payload::List(vec![
+                                Payload::String(topic_id.to_string()),
+                                Payload::String(
                                     pub_keys
                                         .iter()
                                         .map(|pk| pk.fmt_short())
                                         .collect::<Vec<_>>()
                                         .join(","),
-                                ],
-                            })
-                            .await?;
-                    }
-                    GossipEvent::NeighborUp(pub_key) => {
-                        self.erlang_sender
-                            .send(ErlangMessageEvent {
-                                atom: atoms::iroh_gossip_neighbor_up(),
-                                payload: vec![topic_id.to_string(), pub_key.fmt_short()],
-                            })
-                            .await?;
-                    }
-                    GossipEvent::NeighborDown(pub_key) => {
-                        self.erlang_sender
-                            .send(ErlangMessageEvent {
-                                atom: atoms::iroh_gossip_neighbor_down(),
-                                payload: vec![topic_id.to_string(), pub_key.fmt_short()],
-                            })
-                            .await?;
-                    }
-                    GossipEvent::Received(msg) => {
-                        if let Ok(message) = serde_json::from_slice::<CustomMessage>(&msg.content) {
-                            match message {
-                                CustomMessage::AboutMe { from, name } => {
-                                    self.erlang_sender
-                                        .send(ErlangMessageEvent {
-                                            atom: atoms::iroh_gossip_message_received(),
-                                            payload: vec![
-                                                topic_id.to_string(),
-                                                from.fmt_short(),
-                                                name,
-                                            ],
-                                        })
-                                        .await?;
-                                }
+                                ),
+                            ]),
+                        })
+                        .await?;
+                }
+                GossipEvent::NeighborUp(pub_key) => {
+                    self.erlang_sender
+                        .send(ErlangMessageEvent {
+                            atom: atoms::iroh_gossip_neighbor_up(),
+                            payload: Payload::List(vec![
+                                Payload::String(topic_id.to_string()),
+                                Payload::String(pub_key.fmt_short()),
+                            ]),
+                        })
+                        .await?;
+                }
+                GossipEvent::NeighborDown(pub_key) => {
+                    self.erlang_sender
+                        .send(ErlangMessageEvent {
+                            atom: atoms::iroh_gossip_neighbor_down(),
+                            payload: Payload::List(vec![
+                                Payload::String(topic_id.to_string()),
+                                Payload::String(pub_key.fmt_short()),
+                            ]),
+                        })
+                        .await?;
+                }
+                GossipEvent::Received(msg) => {
+                    if let Ok(message) = serde_json::from_slice::<CustomMessage>(&msg.content) {
+                        match message {
+                            CustomMessage::AboutMe { from, name } => {
+                                self.erlang_sender
+                                    .send(ErlangMessageEvent {
+                                        atom: atoms::iroh_gossip_message_received(),
+                                        payload: Payload::List(vec![
+                                            Payload::String(topic_id.to_string()),
+                                            Payload::String(from.fmt_short()),
+                                            Payload::String(name),
+                                        ]),
+                                    })
+                                    .await?;
                             }
                         }
                     }
-                },
-                GossipNetEvent::Lagged => {
-                    tracing::warn!("Event stream lagged for topic {:?}", topic_id);
                 }
             },
             GossipActorMessage::Join { topic_id, node_ids } => {
@@ -387,10 +405,7 @@ impl NodeRef {
 
         if let Some(actor) = actor {
             actor
-                .send(GossipActorMessage::Subscribe {
-                    topic_id,
-                    node_ids: node_ids.clone(),
-                })
+                .send(GossipActorMessage::Subscribe { topic_id, node_ids })
                 .await
                 .map_err(|e| RustlerError::Term(Box::new(e.to_string())))?;
         }
@@ -450,12 +465,3 @@ pub fn unsubscribe_from_topic(
         Ok(node_ref)
     })
 }
-
-// rustler::init!(
-//     "Elixir.IrohEx.Gossip",
-//     [
-//         subscribe_to_topic,
-//         unsubscribe_from_topic,
-//         broadcast_to_topic
-//     ]
-// );
