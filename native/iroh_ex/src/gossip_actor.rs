@@ -413,7 +413,6 @@ impl NodeRef {
     }
 }
 
-// 5. Rustler NIF functions to expose topic management
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn subscribe_to_topic(
     env: Env,
@@ -451,3 +450,12 @@ pub fn unsubscribe_from_topic(
         Ok(node_ref)
     })
 }
+
+// rustler::init!(
+//     "Elixir.IrohEx.Gossip",
+//     [
+//         subscribe_to_topic,
+//         unsubscribe_from_topic,
+//         broadcast_to_topic
+//     ]
+// );
