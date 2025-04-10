@@ -541,27 +541,39 @@ async fn connect_node_async_internal(
                         Event::Gossip(GossipEvent::Joined(pub_keys)) => {
                             tracing::debug!("Joined {:?} {:?}", node_id_short_clone, pub_keys);
 
-                            if let Err(e) = erlang_sender_clone
-                                .send(ErlangMessageEvent {
-                                    atom: atoms::iroh_gossip_joined(),
-                                    payload: Payload::List(vec![
-                                        Payload::String(pub_keys
-                                            .iter()
-                                            .map(|pk| pk.fmt_short())
-                                            .collect::<Vec<_>>()
-                                            .join(",")),
-                                    ]),
-                                })
-                                .await
-                            {
-                                tracing::warn!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
+                            if erlang_sender_clone.is_closed() {
+                                tracing::error!("❌ GossipEvent::Joined: erlang_sender_clone is closed");
+                                continue;
+                            }
+
+                            let event = ErlangMessageEvent {
+                                atom: atoms::iroh_gossip_joined(),
+                                payload: Payload::List(vec![
+                                    Payload::String(pub_keys
+                                        .iter()
+                                        .map(|pk| pk.fmt_short())
+                                        .collect::<Vec<_>>()
+                                        .join(",")),
+                                ]),
+                            };
+
+                            match erlang_sender_clone.send(event).await {
+                                Ok(_) => {
+                                    tracing::debug!("✅ Joined event sent successfully");
+                                }
+                                Err(e) => {
+                                    tracing::error!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
+                                }
                             }
                         }
 
-                        // GossipReceiver::neighbors
-
                         Event::Gossip(GossipEvent::NeighborUp(pub_key)) => {
                             tracing::debug!("NeighborUp {:?}", pub_key);
+
+                            if erlang_sender_clone.is_closed() {
+                                tracing::error!("❌ GossipEvent::NeighborUp: erlang_sender_clone is closed");
+                                continue;
+                            }
 
                             let remote_pubkey_opt = receiver
                                 .neighbors()
@@ -578,34 +590,29 @@ async fn connect_node_async_internal(
                                     "{}".to_string()
                                 };
 
-                                if let Err(e) = erlang_sender_clone
-                                    .send(ErlangMessageEvent {
-                                        atom: atoms::iroh_gossip_neighbor_up(),
-                                        payload: Payload::List(vec![
-                                            Payload::String(node_id_short_clone.clone()),
-                                            Payload::String(pub_key.clone().fmt_short()),
-                                            Payload::String(remote_info_string),
-                                        ]),
-                                    })
-                                    .await
-                                {
-                                    tracing::warn!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
+                                let event = ErlangMessageEvent {
+                                    atom: atoms::iroh_gossip_neighbor_up(),
+                                    payload: Payload::List(vec![
+                                        Payload::String(node_id_short_clone.clone()),
+                                        Payload::String(pub_key.clone().fmt_short()),
+                                        Payload::String(remote_info_string),
+                                    ]),
+                                };
+
+                                match erlang_sender_clone.send(event).await {
+                                    Ok(_) => {
+                                        tracing::debug!("✅ NeighborUp event sent successfully");
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
+                                    }
                                 }
-                                // Do something with `others`...
                             }
-
-                            // .filter(|n| n.node_id != node_addr.node_id)
-                    // .collect::<Vec<_>>();
-
-                // for info in &remote_info_vec {
-                //     tracing::info!("{}", format_remote_info(info));
-                // }
-
                         }
+
                         Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
                             tracing::debug!("NeighborDown {:?}", pub_key);
 
-                            // Ensure we have a valid sender before attempting to send
                             if erlang_sender_clone.is_closed() {
                                 tracing::error!("❌ GossipEvent::NeighborDown: erlang_sender_clone is closed");
                                 continue;
@@ -625,32 +632,38 @@ async fn connect_node_async_internal(
                                 }
                                 Err(e) => {
                                     tracing::error!("❌ GossipEvent::NeighborDown Failed to send erlang message: {:?}", e);
-                                    // Try to reconnect or handle the error appropriately
                                 }
                             }
                         }
+
                         Event::Gossip(GossipEvent::Received(msg)) => {
                             tracing::debug!("Received message: {:?}", msg);
+
+                            if erlang_sender_clone.is_closed() {
+                                tracing::error!("❌ GossipEvent::Received: erlang_sender_clone is closed");
+                                continue;
+                            }
 
                             match Message::from_bytes(&msg.content) {
                                 Ok(message) => match message {
                                     Message::AboutMe { from, name } => {
                                         tracing::debug!("FROM: {} MSG: {}", from.fmt_short(), name);
 
-                                        if let Err(e) = erlang_sender_clone
-                                            .send(ErlangMessageEvent {
-                                                atom: atoms::iroh_gossip_message_received(),
-                                                payload: Payload::List(vec![
-                                                    Payload::String(node_id_short_clone.clone()),
-                                                    Payload::String(name.clone()),
-                                                ]),
-                                            })
-                                            .await
-                                        {
-                                            tracing::warn!(
-                                                "❌ GossipEvent::Received Failed to send erlang message: {:?}",
-                                                e
-                                            );
+                                        let event = ErlangMessageEvent {
+                                            atom: atoms::iroh_gossip_message_received(),
+                                            payload: Payload::List(vec![
+                                                Payload::String(node_id_short_clone.clone()),
+                                                Payload::String(name.clone()),
+                                            ]),
+                                        };
+
+                                        match erlang_sender_clone.send(event).await {
+                                            Ok(_) => {
+                                                tracing::debug!("✅ Message received event sent successfully");
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("❌ GossipEvent::Received Failed to send erlang message: {:?}", e);
+                                            }
                                         }
                                     }
                                     Message::Message { from, text } => {
