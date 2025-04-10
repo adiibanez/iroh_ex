@@ -1,8 +1,14 @@
+use crate::actor::Actor;
+use async_trait::async_trait;
+use rustler::{Encoder, LocalPid, OwnedEnv, Term};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use rustler::{LocalPid, OwnedEnv, Term, Encoder};
 
+use crate::state::atoms;
+use crate::state::ErlangMessageEvent;
 // 1. Define the message types for the actor
 #[derive(Debug)]
 enum ErlangEventHandlerMessage {
@@ -14,7 +20,7 @@ enum ErlangEventHandlerMessage {
 // 2. Create the actor struct
 struct ErlangEventHandlerActor {
     pid: LocalPid,
-    env: OwnedEnv,
+    env: Arc<Mutex<OwnedEnv>>,
     is_alive: Arc<AtomicBool>,
     last_check: Instant,
     check_interval: Duration,
@@ -24,7 +30,7 @@ impl ErlangEventHandlerActor {
     fn new(pid: LocalPid, check_interval: Duration) -> Self {
         Self {
             pid,
-            env: OwnedEnv::new(),
+            env: Arc::new(Mutex::new(OwnedEnv::new())),
             is_alive: Arc::new(AtomicBool::new(true)),
             last_check: Instant::now(),
             check_interval,
@@ -34,10 +40,13 @@ impl ErlangEventHandlerActor {
     async fn check_alive(&mut self) -> bool {
         if self.last_check.elapsed() >= self.check_interval {
             // Try to send a ping message
-            let is_alive = self.env.send_and_clear(&self.pid, |env| {
-                atoms::ping().encode(env)
-            }).is_ok();
-            
+            let is_alive = self
+                .env
+                .lock()
+                .unwrap()
+                .send_and_clear(&self.pid, |env| atoms::ping().encode(env))
+                .is_ok();
+
             self.is_alive.store(is_alive, Ordering::SeqCst);
             self.last_check = Instant::now();
             is_alive
@@ -50,8 +59,8 @@ impl ErlangEventHandlerActor {
         if !self.check_alive().await {
             return Err(anyhow::anyhow!("Elixir process is not alive"));
         }
-
-        self.env.send_and_clear(&self.pid, |env| {
+        let mut env = self.env.lock().unwrap();
+        env.send_and_clear(&self.pid, |env| {
             let terms: Vec<Term> = event.payload.iter().map(|s| s.encode(env)).collect();
             match terms.len() {
                 0 => event.atom.encode(env),
@@ -60,7 +69,8 @@ impl ErlangEventHandlerActor {
                 3 => (event.atom, terms[0], terms[1], terms[2]).encode(env),
                 _ => (event.atom, terms.to_vec()).encode(env),
             }
-        }).map_err(|e| anyhow::anyhow!("Failed to send message: {:?}", e))
+        })
+        .map_err(|e| anyhow::anyhow!("Failed to send message: {:?}", e))
     }
 }
 
@@ -93,9 +103,9 @@ struct ErlangEventHandlerHandle {
 }
 
 impl ErlangEventHandlerHandle {
-    fn new(actor: ErlangEventHandlerActor) -> Self {
+    fn new(mut actor: ErlangEventHandlerActor) -> Self {
         let (sender, mut receiver) = mpsc::channel(32);
-        
+
         tokio::spawn(async move {
             while let Some(msg) = receiver.recv().await {
                 if let Err(e) = actor.handle(msg).await {
@@ -107,7 +117,10 @@ impl ErlangEventHandlerHandle {
         Self { sender }
     }
 
-    async fn send(&self, msg: ErlangEventHandlerMessage) -> Result<(), mpsc::error::SendError<ErlangEventHandlerMessage>> {
+    async fn send(
+        &self,
+        msg: ErlangEventHandlerMessage,
+    ) -> Result<(), mpsc::error::SendError<ErlangEventHandlerMessage>> {
         self.sender.send(msg).await
     }
 }

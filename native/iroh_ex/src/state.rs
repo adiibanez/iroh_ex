@@ -145,6 +145,8 @@ pub mod atoms {
     rustler::atoms! {
         ok,
         error,
+        // fake async alive message
+        ping,
 
         // errors
         lock_fail,

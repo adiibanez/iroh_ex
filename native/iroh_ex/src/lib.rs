@@ -78,6 +78,7 @@ mod state;
 mod tokio_runtime;
 mod wrappers;
 mod gossip_actor;
+mod erlang_actor;
 mod actor;
 mod utils;
 
