@@ -141,7 +141,7 @@ impl GossipActor {
 
         // Spawn a task to handle events for this topic
         let erlang_sender = self.erlang_sender.clone();
-        let node_id = self.node_id;
+        let _node_id = self.node_id;
 
         tokio::spawn(async move {
             while let Some(event) = receiver.next().await {

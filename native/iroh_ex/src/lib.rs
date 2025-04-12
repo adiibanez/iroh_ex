@@ -2,10 +2,9 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
-#![allow(deprecated)]
-#![allow(unused_must_use)]
+// #![allow(deprecated)]
+// #![allow(unused_must_use)]
 #![allow(non_local_definitions)]
-// #![allow(unexpected_cfgs)]
 // #[cfg(not(clippy))]
 #![feature(mpmc_channel)]
 #![allow(clippy::too_many_arguments)]
@@ -18,6 +17,7 @@ use iroh::RelayMap;
 use iroh::RelayMode;
 use iroh::RelayUrl;
 use iroh::endpoint::ConnectionType;
+use rustler::NifStruct;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
 };
@@ -32,12 +32,7 @@ use rand::Rng;
 use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::env;
-// use std::sync::mpmc::Sender;
-// use std::sync::mpmc::Receiver;
 use std::sync::{Arc, Mutex};
-
-// use tracing_subscriber::{Registry, prelude::*};
-// use console_subscriber::ConsoleLayer;
 
 use std::fmt;
 use std::ptr;
@@ -85,7 +80,11 @@ use crate::state::{ErlangMessageEvent, Payload};
 use crate::state::atoms;
 use crate::tokio_runtime::RUNTIME;
 use crate::state::NodeState;
+
+// debug dependencies
 // use parking_lot::deadlock;
+// use tracing_subscriber::{Registry, prelude::*};
+// use console_subscriber::ConsoleLayer;
 
 const ALPN: &[u8] = b"iroh-example/echo/0";
 
@@ -130,13 +129,23 @@ pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
     Ok(secret_key.to_string())
 }
 
+
+#[derive(NifStruct)]
+#[module = "IrohEx.NodeConfig"]
+struct NodeConfig {
+    is_whale_node: bool,
+    active_view_capacity: u32,
+    passive_view_capacity: u32,
+    relay_urls: Vec<String>,
+}
+
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<ResourceArc<NodeRef>, RustlerError> {
-    let env_pid_clone = env.pid();
+pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<ResourceArc<NodeRef>, RustlerError> {
+    // let env_pid_clone = env.pid();
     let monitor_pid = pid;
     let topic_name = TOPIC_NAME.to_string();
 
-    let (resource, monitor_ref) = RUNTIME.block_on(async move {
+    let (resource, _monitor_ref) = RUNTIME.block_on(async move {
 
         // let relay_url_str = env::var("RELAY_URL").unwrap_or_else(|_| "http://localhost:3340".to_string());
 
@@ -162,6 +171,11 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
                 .expect("Failed to parse hardcoded EU relay URL");
             let relay_map = RelayMap::from_url(relay_url);
             RelayMode::Custom(relay_map)
+        } else if node_config.relay_urls.len() > 0 {
+            let relay_url = RelayUrl::from_str(&node_config.relay_urls[0])
+                .expect("Failed to parse relay url");
+            let relay_map = RelayMap::from_url(relay_url);
+            RelayMode::Custom(relay_map)
         } else {
             RelayMode::Default
         };
@@ -170,21 +184,22 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
 
         let endpoint_builder = Endpoint::builder()
             .relay_mode(relay_mode)
-            // .discovery_n0()
+            .discovery_n0()
             .discovery_local_network();
+
+        let endpoint_builder = endpoint_builder.discovery_n0();
 
         let endpoint: Endpoint = endpoint_builder.bind()
             .await
             .map_err(|e| RustlerError::Term(Box::new(format!("Endpoint error: {}", e))))?;
 
-            
         let endpoint_clone = endpoint.clone();
         let router_builder = iroh::protocol::Router::builder(endpoint.clone());
 
-        let hyparview_config = if is_whale_node {
+        let hyparview_config = if node_config.is_whale_node {
             iroh_gossip::proto::HyparviewConfig {
-                active_view_capacity: 50,
-                passive_view_capacity: 200,
+                active_view_capacity: node_config.active_view_capacity as usize,
+                passive_view_capacity: node_config.passive_view_capacity as usize,
                 ..Default::default()
             }
         } else {
@@ -236,7 +251,7 @@ pub fn create_node(env: Env, pid: LocalPid, is_whale_node: bool) -> Result<Resou
         // Start task inside async
         let node_addr_short = endpoint.node_id().fmt_short().clone();
         let handler_pid = monitor_pid;
-        let handler_monitor = monitor_ref;
+        // let handler_monitor = monitor_ref;
 
         let erlang_event_handler_task = Some(tokio::spawn(async move {
             let mut mpsc_event_receiver = mpsc_event_receiver_arc.write().await;
@@ -584,10 +599,9 @@ async fn connect_node_async_internal(
                                     .remote_info_iter()
                                     .find(|r| r.node_id != remote_pubkey)
                                 {
-                                    serde_json::to_string(&remote_info_to_map(&remote_info))
-                                        .unwrap_or_else(|_| "{}".to_string())
+                                    Payload::from_map(remote_info_to_map(&remote_info))
                                 } else {
-                                    "{}".to_string()
+                                    Payload::Map(vec![])
                                 };
 
                                 let event = ErlangMessageEvent {
@@ -595,7 +609,7 @@ async fn connect_node_async_internal(
                                     payload: Payload::List(vec![
                                         Payload::String(node_id_short_clone.clone()),
                                         Payload::String(pub_key.clone().fmt_short()),
-                                        Payload::String(remote_info_string),
+                                        remote_info_string,
                                     ]),
                                 };
 
@@ -764,7 +778,9 @@ fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
         state.endpoint.clone() as Endpoint
     };
 
-    endpoint.close();
+    RUNTIME.spawn(async move {
+        endpoint.close().await;
+    });
 
     // let node = node_ref.lock().unwrap();
     // node.disconnect_all();  // Assuming an API to disconnect all peers
@@ -808,7 +824,7 @@ pub fn cleanup(
     // Get the monitor ref before dropping
     let monitor_ref = {
         let state = node_ref.0.lock().unwrap();
-        state.monitor_ref.clone()
+        state.monitor_ref
     };
 
     // Demonitor if needed
@@ -931,9 +947,9 @@ fn format_remote_info(info: &RemoteInfo) -> String {
 
     writeln!(out, "🧩 Node: {}", info.node_id.fmt_short()).ok();
     writeln!(out, "  Relay: {}", info.relay_url.as_ref().map(|r| r.relay_url.to_string()).unwrap_or("None".into())).ok();
-    writeln!(out, "  Conn Type: {:?}", info.conn_type);
-    writeln!(out, "  Latency: {:?}", info.latency);
-    writeln!(out, "  Addresses:");
+    let _ = writeln!(out, "  Conn Type: {:?}", info.conn_type);
+    let _ = writeln!(out, "  Latency: {:?}", info.latency);
+    let _ = writeln!(out, "  Addresses:");
 
     for addr in &info.addrs {
         writeln!(out, "    - {}", addr.addr).ok();
@@ -1088,7 +1104,7 @@ fn on_load(env: Env, _info: Term) -> bool {
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
 
     println!("Initializing Rust Iroh NIF module ...");
-    rustler::resource!(NodeRef, env);
+    let _ = rustler::resource!(NodeRef, env);
     println!("Rust NIF Iroh module loaded successfully.");
 
     // start_continuous_flamegraph(180);

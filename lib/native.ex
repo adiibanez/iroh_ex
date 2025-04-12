@@ -1,4 +1,7 @@
 defmodule IrohEx.Native do
+
+  alias IrohEx.NodeConfig
+
   # use Rustler,
   #   otp_app: :iroh_ex,
   #   crate: :iroh_ex
@@ -35,8 +38,8 @@ defmodule IrohEx.Native do
   @spec add(number(), number()) :: {:ok, number()} | {:error, term()}
   def add(_a, _b), do: error()
 
-  @spec create_node(pid(), boolean()) :: {:ok, reference()} | {:error, term()}
-  def create_node(_pid, _fatnode \\ false), do: error()
+  @spec create_node(pid(), NodeConfig.t()) :: {:ok, reference()} | {:error, term()}
+  def create_node(_pid, _node_config), do: error()
 
   @spec gen_node_addr(reference()) :: {:ok, binary()} | {:error, term()}
   def gen_node_addr(_node), do: error()
@@ -83,4 +86,29 @@ defmodule IrohEx.Native do
 
   ## Handle NIF errors when Rust module isn't loaded
   defp error, do: :erlang.nif_error(:nif_not_loaded)
+end
+
+defmodule IrohEx.NodeConfig do
+  @moduledoc false
+  @enforce_keys [:is_whale_node, :active_view_capacity, :passive_view_capacity, :relay_urls, :discovery]
+  defstruct [:is_whale_node, :active_view_capacity, :passive_view_capacity, :relay_urls, :discovery]
+
+  @default_relay_urls ["https://euw1-1.relay.iroh.network./"]
+  @default_discovery ["n0", "local_network"]
+
+  @type t :: %__MODULE__{
+    is_whale_node: boolean(),
+    active_view_capacity: integer(),
+    passive_view_capacity: integer(),
+    relay_urls: [String.t()],
+    discovery: [String.t()]
+  }
+
+  def build, do: %__MODULE__{
+    is_whale_node: false,
+    active_view_capacity: 10,
+    passive_view_capacity: 10,
+    relay_urls: @default_relay_urls,
+    discovery: @default_discovery
+  }
 end

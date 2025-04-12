@@ -1,6 +1,7 @@
 defmodule IrohEx.NodeManager do
   use GenServer
   alias IrohEx.Native
+  alias IrohEx.NodeConfig
   require Logger
 
   @default_log_collector IrohEx.LogCollector
@@ -77,7 +78,11 @@ defmodule IrohEx.NodeManager do
     # kill all existing nodes
     IrohEx.NodeSupervisor.reset()
 
-    mothership_node_ref = Native.create_node(self())
+    node_config = NodeConfig.build()
+      |> Map.put(:active_view_capacity, 50)
+      |> Map.put(:passive_view_capacity, 200)
+
+    mothership_node_ref = Native.create_node(self(), node_config)
     ticket = Native.create_ticket(mothership_node_ref)
 
     # IO.inspect(state, label: "State")
@@ -122,18 +127,18 @@ defmodule IrohEx.NodeManager do
 
     stream =
       1..batch_size
-      |> Stream.map(fn x ->
+      |> Stream.map(fn _ ->
         fn ->
-          # N% chance
+          # N% chance
           is_whale_node = case whale_node_prob > 0 do
             true -> :rand.uniform() <= max(1, whale_node_prob) / 100
             false -> false
           end
 
-          IO.puts("#{__MODULE__} Node: #{x} is whale: #{is_whale_node}")
+          # IO.puts("#{__MODULE__} Node: #{x} is whale: #{is_whale_node}")
 
           IrohEx.NodeSupervisor.start_node(is_whale_node, ticket, log_pid)
-          IO.puts("Node #{x} started")
+          # IO.puts("Node #{x} started")
           :ok
         end
       end)
@@ -179,7 +184,17 @@ defmodule IrohEx.NodeSupervisor do
 
   @impl true
   def init(_args) do
-    DynamicSupervisor.init(strategy: :one_for_one)
+    DynamicSupervisor.init(
+      strategy: :one_for_one,
+      max_restarts: 1000,        # Even higher
+      max_seconds: 600,          # Longer window
+      max_children: :infinity,
+      intensity: 1,
+      period: 1,
+      # Add these to help debug supervisor behavior
+      trap_exit: true,           # Trap exits to prevent supervisor crashes
+      shutdown: :brutal_kill     # Force kill children that don't terminate
+    )
   end
 
   def start_node(is_whale_node, ticket, log_pid) do
@@ -188,14 +203,11 @@ defmodule IrohEx.NodeSupervisor do
       id: node_id,
       start: {IrohEx.Node, :start_link, [%{is_whale_node: is_whale_node, ticket: ticket, log_pid: log_pid}]},
       shutdown: 5_000,
-      restart: :permanent,
+      restart: :permanent,     # Always restart
       type: :worker
     }
 
-    # IO.puts("Test")
-
     case DynamicSupervisor.start_child(__MODULE__, child_spec) do
-      # case Sensocto.RegistryUtils.dynamic_start_child(Sensocto.SensorsDynamicSupervisor, __MODULE__, child_spec) do
       {:ok, pid} when is_pid(pid) ->
         Logger.debug("Added node #{node_id}")
         {:ok, pid}
@@ -210,34 +222,34 @@ defmodule IrohEx.NodeSupervisor do
     end
   end
 
-  # def remove_node(sensor_id) do
-  #   case Registry.lookup(Sensocto.SensorPairRegistry, sensor_id) do
-  #     [{pid, _}] ->
-  #       DynamicSupervisor.terminate_child(__MODULE__, pid)
-  #       Logger.debug("Stopped sensor #{sensor_id}")
-  #       :ok
-
-  #     [] ->
-  #       Logger.debug("Error removing sensor: #{sensor_id}")
-  #       :error
-  #   end
-  # end
-
-  def get_children() do
-    # children = DynamicSupervisor.which_children(__MODULE__)
-    # |> Enum.each(fn {_, pid, _, _} -> IO.inspect(pid) end)
-    # IO.inspect(children)
-    # children
+  def check_health do
     children = DynamicSupervisor.which_children(__MODULE__)
-            |> Enum.map(fn {_, pid, _, _} -> pid end)
-
-    # IO.inspect(children, label: "Children PIDs")
+    Logger.debug("Supervisor health check:")
+    Logger.debug("  Process: #{inspect(Process.whereis(__MODULE__))}")
+    Logger.debug("  Children count: #{length(children)}")
+    Logger.debug("  Children: #{inspect(children)}")
     children
+  end
+
+  def get_children do
+    DynamicSupervisor.which_children(__MODULE__)
+    |> Enum.map(fn {_, pid, _, _} -> pid end)
   end
 
   def reset() do
     DynamicSupervisor.which_children(__MODULE__)
     |> Enum.each(fn {_, pid, _, _} -> DynamicSupervisor.terminate_child(__MODULE__, pid) end)
+  end
+
+  def debug_state do
+    children = DynamicSupervisor.which_children(__MODULE__)
+    IO.puts("Supervisor children: #{inspect(children)}")
+    # Also check if supervisor is alive
+    case Process.whereis(__MODULE__) do
+      nil -> IO.puts("Supervisor process not found!")
+      pid -> IO.puts("Supervisor process: #{inspect(pid)}")
+    end
+    children
   end
 end
 
@@ -246,7 +258,7 @@ defmodule IrohEx.Node do
   use GenServer
   require Logger
   alias IrohEx.Native
-
+  alias IrohEx.NodeConfig
   def start_link(state) do
     GenServer.start_link(__MODULE__, state)
   end
@@ -265,11 +277,24 @@ defmodule IrohEx.Node do
     #IO.inspect(state, label: "Node init state")
     pid = self()
 
-    IO.puts("#{__MODULE__} before create_node")
-    node_ref = Native.create_node(pid, is_whale_node)
+    node_config = case is_whale_node do
+      true ->
+        NodeConfig.build()
+        |> Map.put(:is_whale_node, true)
+        |> Map.put(:active_view_capacity, 50)
+        |> Map.put(:passive_view_capacity, 200)
+      false ->
+        NodeConfig.build()
+        |> Map.put(:is_whale_node, false)
+        |> Map.put(:active_view_capacity, 0)
+        |> Map.put(:passive_view_capacity, 0)
+    end
+
+    node_ref = Native.create_node(pid, node_config)
+    # tiny nap to let p2p do it's thing
     Process.sleep(500)
     node_addr = Native.gen_node_addr(node_ref)
-    IO.puts("#{__MODULE__} after create_node #{node_addr}")
+
 
     # send immediately, otherwise all :continue callbacks will need to finish before
     Process.send_after(log_pid, {:iroh_node_setup, node_addr}, 0)
@@ -283,11 +308,9 @@ defmodule IrohEx.Node do
     }
   end
 
-  def handle_info(:connect_node, %{node_ref: node_ref, node_addr: node_addr, ticket: ticket, log_pid: _log_pid } = state) do
+  def handle_info(:connect_node, %{node_ref: node_ref, ticket: ticket, log_pid: _log_pid } = state) do
     # IO.puts("connect_node Node addr: #{inspect(node_addr)}")
-    IO.puts("#{__MODULE__} before connect #{node_addr}")
     Native.connect_node(node_ref, ticket)
-    IO.puts("#{__MODULE__} after connect #{node_addr}")
     Process.sleep(500)
     #IO.inspect(node_addr, "Node init")
     {:noreply, state}
@@ -356,10 +379,21 @@ defmodule IrohEx.Node do
   end
 
   @impl true
-  def terminate(reason, %{ node_ref: node_ref, node_addr: node_addr } = state) do
-    Native.cleanup(node_ref)
-    IO.puts("#{__MODULE__} #{node_addr} #{inspect(node_ref)} Going Down: #{inspect(reason)} #{inspect(state)}")
-    :normal
+  def terminate(reason, %{ log_pid: log_pid, node_ref: node_ref, node_addr: node_addr } = state) do
+    Logger.debug("Node terminating: #{inspect(reason)}")
+    if node_ref do
+      try do
+        Logger.debug("Cleaning up node_ref: #{inspect(node_ref)}")
+        result = Native.cleanup(node_ref)
+        Logger.debug("Cleanup result: #{inspect(result)}")
+      rescue
+        e -> Logger.error("Error cleaning up node: #{inspect(e)}")
+      end
+    else
+      Logger.debug("No node_ref to clean up")
+    end
+
+    :ok
   end
 
 

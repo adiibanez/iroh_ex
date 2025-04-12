@@ -124,14 +124,14 @@ impl Drop for NodeState {
 
         RUNTIME.spawn(async move {
             gossip.shutdown().await;
-            router.shutdown();
+            let _ = router.shutdown().await;
             endpoint.close().await;
             tracing::debug!("✅ NodeState cleanup complete!");
         });
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Payload {
     String(String),
     Binary(Vec<u8>),
@@ -165,6 +165,14 @@ impl Payload {
             Payload::Integer(i) => i.encode(env),
             Payload::Float(f) => f.encode(env),
         }
+    }
+
+    pub fn from_map(map: HashMap<String, String>) -> Self {
+        let payload_map: Vec<(Payload, Payload)> = map
+            .into_iter()
+            .map(|(k, v)| (Payload::String(k), Payload::String(v)))
+            .collect();
+        Payload::Map(payload_map)
     }
 }
 

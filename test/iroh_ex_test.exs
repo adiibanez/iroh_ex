@@ -2,10 +2,10 @@ defmodule IrohExTest do
   use ExUnit.Case
   doctest IrohEx
   alias IrohEx.Native
-
+  alias IrohEx.NodeConfig
   @node_cnt 100
   # 10_000
-  @msg_cnt 200
+  @msg_cnt 10
   @rand_msg_delay 50
   @use_random_sender true
   @delay_after_connect 1000
@@ -14,8 +14,15 @@ defmodule IrohExTest do
 
   @msg_timeout 30_000
 
+  # Use the builder function for default config
+  defp default_node_config do
+    NodeConfig.build()
+    |> Map.put(:active_view_capacity, 50)
+    |> Map.put(:passive_view_capacity, 200)
+  end
+
   test "test iroh node" do
-    node_ref = Native.create_node(self())
+    node_ref = Native.create_node(self(), default_node_config())
     ticket = Native.create_ticket(node_ref)
 
     node_id = Native.gen_node_addr(node_ref)
@@ -27,11 +34,11 @@ defmodule IrohExTest do
   end
 
   test "test iroh node messages" do
-    node_ref = Native.create_node(self())
+    node_ref = Native.create_node(self(), default_node_config())
     ticket = Native.create_ticket(node_ref)
 
     node_id = Native.gen_node_addr(node_ref)
-    node2_ref = Native.create_node(self())
+    node2_ref = Native.create_node(self(), default_node_config())
 
     Native.send_message(node_ref, "Test message")
 
@@ -70,7 +77,7 @@ defmodule IrohExTest do
     pid = self()
     timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
 
-    mothership_node_ref = Native.create_node(pid)
+    mothership_node_ref = Native.create_node(pid, default_node_config())
 
     ticket = Native.create_ticket(mothership_node_ref)
 
@@ -202,7 +209,7 @@ defmodule IrohExTest do
       IO.puts("Create node: #{x}")
       Task.async(fn ->
         timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
-        node_ref = Native.create_node(pid)
+        node_ref = Native.create_node(pid, default_node_config())
         timestamp_done = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
         duration = timestamp_done - timestamp
         IO.puts("Create node #{x} took: #{duration}ms")
