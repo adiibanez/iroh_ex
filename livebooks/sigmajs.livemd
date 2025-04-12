@@ -5,7 +5,7 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.8"},
+  {:iroh_ex, "~> 0.0.9"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -52,7 +52,7 @@ defmodule SigmaGraph do
   def remove_edge(kino, edge) do
     Kino.JS.Live.cast(kino, {:remove_edge, edge})
   end
-  
+
   def export_image(kino, config) do
     Kino.JS.Live.cast(kino, {:export_image, config})
   end
@@ -145,9 +145,9 @@ defmodule SigmaGraph do
 
   @impl true
   def handle_cast({:add_edges_batch, edges}, ctx) do
-    ctx = update_in(ctx.assigns.edges, fn 
+    ctx = update_in(ctx.assigns.edges, fn
       nil -> edges
-      existing_edges -> existing_edges ++ edges 
+      existing_edges -> existing_edges ++ edges
     end)
     broadcast_event(ctx, "add_edges_batch", %{edges: edges})
     {:noreply, ctx}
@@ -181,7 +181,7 @@ defmodule SigmaGraph do
     ctx =
       update_in(
         ctx.assigns.edges,
-        &Enum.reject(&1, fn 
+        &Enum.reject(&1, fn
           e -> edge.source == e.source && edge.target == e.target
         end)
       )
@@ -196,7 +196,7 @@ defmodule SigmaGraph do
     {:noreply, ctx}
   end
 
-  
+
   @impl true
   def handle_info(msg, ctx) do
     IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
@@ -224,13 +224,14 @@ defmodule SigmaGraph do
     import debounce from 'https://cdn.jsdelivr.net/npm/debounce@2.2.0/+esm';
     import { downloadAsImage } from 'https://cdn.jsdelivr.net/npm/@sigma/export-image@3.0.0/+esm';
     import { NodeBorderProgram } from 'https://cdn.jsdelivr.net/npm/@sigma/node-border@3.0.0/+esm';
+    import sigmanodeImage from 'https://cdn.jsdelivr.net/npm/@sigma/node-image@3.0.0/+esm';
 
     const { circular } = graphologyLayout;
 
     const gridDefaultOffset = 30;
     var gridOffset = gridDefaultOffset;
     var gridYOffset = 0;
-    
+
 
     // --- Configuration ---
     const DIMMED_COLOR = "rgba(50, 50, 50, 0.7)";
@@ -244,8 +245,8 @@ defmodule SigmaGraph do
       container.style.overflow = "auto";
       container.style.border = "1px solid #ccc";
       container.style.backgroundColor = "#000";
-      
-    
+
+
       ctx.root.appendChild(container);
 
       // --- Reducers ---
@@ -300,13 +301,13 @@ defmodule SigmaGraph do
        */
       const edgeReducer = (edgeId, attributes, sourceId, targetId) => {
           const newAttributes = { ...attributes };
-      
+
           if (hoveredNodeId) {
               const isSourceHovered = sourceId === hoveredNodeId;
               const isTargetHovered = targetId === hoveredNodeId;
               const isSourceNeighbor = hoveredNeighbors.has(sourceId);
               const isTargetNeighbor = hoveredNeighbors.has(targetId);
-      
+
               // Highlight edges that connect the hovered node directly to a neighbor
               if (isSourceHovered || isTargetHovered || isSourceNeighbor || isTargetNeighbor) {
                   newAttributes.zIndex = 1; // Bring to front
@@ -320,7 +321,7 @@ defmodule SigmaGraph do
               newAttributes.zIndex = 0;
               newAttributes.color = attributes.originalColor || attributes.color; // Keep the original color
           }
-      
+
           return newAttributes;
       };
 
@@ -342,7 +343,7 @@ defmodule SigmaGraph do
       graphologyLayoutNoverlap
 
       // const positions = graphologyLayoutNoverlap(graph, {maxIterations: 50});
-  
+
       // With settings:
       /*const positions = graphologyLayoutNoverlap(graph, {
         maxIterations: 50,
@@ -354,7 +355,7 @@ defmodule SigmaGraph do
 
       //graphologyLayoutNoverlap.assign(graph);
 
-      
+
       const sensibleSettings = FA2Layout.inferSettings(graph);
 
       /*FA2Layout.assign(graph, {
@@ -370,7 +371,7 @@ defmodule SigmaGraph do
           slowDown: 10, // Ensures more gradual movement
         }
       });*/
-      
+
 
       /* settings: {
           gravity: 0.1, // Weak gravity to allow movement
@@ -405,7 +406,7 @@ defmodule SigmaGraph do
           function maxNodesForRadius(radius) {
               const avgNodeSize = ringNodes.reduce((sum, node) => sum + graph.getNodeAttribute(node, "size"), 0) / ringNodes.length;
               const spacingFactor = avgNodeSize + minSpacing;
-          
+
               // Ensure each ring can fit at least 8-20 nodes to avoid clustering
               return Math.max(20, Math.floor((2 * Math.PI * radius) / spacingFactor));
           }
@@ -439,32 +440,32 @@ defmodule SigmaGraph do
 
       function placeNodesInRing(centerX, centerY, radius, nodes) {
           if (nodes.length === 0) return;
-      
+
           const angleStep = (2 * Math.PI) / nodes.length;
-      
+
           const jitterStrength = 1; // max random offset in pixels
 
           nodes.forEach((node, i) => {
               const angle = i * angleStep;
-              
+
               // Radial jitter (push/pull a little)
               const radialOffset = (Math.random() - 0.5) * 2 * jitterStrength;
-              
+
               // Tangential jitter (slide along the circle a bit)
               const tangentialOffset = (Math.random() - 0.5) * 2 * jitterStrength;
-              
+
               // Base position
               const baseX = centerX + (radius + radialOffset) * Math.cos(angle);
               const baseY = centerY + (radius + radialOffset) * Math.sin(angle);
-              
+
               // Compute tangential vector (perpendicular to radius vector)
               const tangentX = -Math.sin(angle);
               const tangentY = Math.cos(angle);
-              
+
               // Final position with tangential jitter
               const x = baseX + tangentX * tangentialOffset;
               const y = baseY + tangentY * tangentialOffset;
-          
+
               graph.mergeNodeAttributes(node, { x, y });
           });
       }
@@ -487,9 +488,9 @@ defmodule SigmaGraph do
         const nodeCount = gridNodes.length;
         const rows = Math.ceil(nodeCount / cols);
         const totalHeight = (rows - 1) * spacing;
-      
+
         const yOffset = -totalHeight / 2; // center the grid vertically around gridStartY
-      
+
         gridNodes.forEach((node, i) => {
           const row = Math.floor(i / cols);
           const col = i % cols;
@@ -498,7 +499,7 @@ defmodule SigmaGraph do
             y: gridStartY + yOffset + row * spacing,
           });
         });
-      
+
         // Optional: set gridYOffset globally if needed elsewhere
         window.gridYOffset = yOffset;
       }
@@ -606,7 +607,7 @@ defmodule SigmaGraph do
       ctx.handleEvent("export_image", ({ width, height }) => {
         exportMode = true;
         renderer.refresh();
-      
+
         setTimeout(() => {
           downloadAsImage(renderer, {
             layers: ["edges", "nodes"],
@@ -617,7 +618,7 @@ defmodule SigmaGraph do
             height: 3000,
             cameraState: { x: 0.5, y: 0.5, angle: 0, ratio: 1.2 }
           });
-      
+
           // Reset export mode and refresh back
           exportMode = false;
           renderer.refresh();
@@ -705,7 +706,7 @@ defmodule IrohLogger do
         nodes_cnt >= 100 -> 2
       end
 
-    IO.puts("#{__MODULE__} nodes_cnt: #{nodes_cnt} size: #{size}")
+    # IO.puts("#{__MODULE__} nodes_cnt: #{nodes_cnt} size: #{size}")
     size
   end
 
@@ -789,67 +790,83 @@ defmodule IrohLogger do
 
   @impl true
   def handle_info({:iroh_gossip_neighbor_up, source, target, remote_info}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
-    IO.puts("Neighbor up: #{source} #{target} #{remote_info}")
+    # IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)}")
 
-    new_peers = case peers[source] do
-      nil -> [target]
-      peers -> peers ++ [target]
-    end
+    case remote_info["conn_type"] do 
+      "None" -> #IO.puts("None connection type")
+        {:noreply, state}
 
-    peers_cnt = Enum.count(new_peers)
-    nodes_cnt = Enum.count(nodes)
+      _ -> 
 
-    grow_size =
-      cond do
-        nodes_cnt < 100 -> peers_cnt
-        nodes_cnt >= 100 -> peers_cnt / 2
-      end
-
-    color =
-      cond do
-        peers_cnt == 0 -> vary_color("red", "E6")
-        peers_cnt == 1 -> vary_color("orange", "E6")
-        peers_cnt < 3 -> vary_color("yellow", "E6")
-        #peers_cnt >= 3 -> vary_color("green", "E6")
-        peers_cnt < 6 -> vary_color("green", "E6")
-        true -> vary_color("blue", "CC")  # whale node = blue + 80% alpha
-      end
-
-    SigmaGraph.merge_node(
-      graph,
-      %{
-        id: source,
-        layout: "ring",
-        size: get_node_size(nodes_cnt) + grow_size,
-        color: color,
-        label: "#{source} P:#{peers_cnt}",
-        type: "border",
-        borderColor: @border_color
-      }
-    )
-
-    has_inverse_edge = Map.get(peers, target, []) |> Enum.member?(source)
-
-    unless has_inverse_edge do
-      SigmaGraph.add_edge(
-        graph,
-        %{
-          source: source,
-          target: target,
-          props: %{ type: "curved", curvature: 0.03, color: grey_tone(), size: 1 }
-        }
-      )
-    end
+        new_peers = case peers[source] do
+          nil -> [target]
+          peers -> peers ++ [target]
+        end
     
-    {:noreply,
-      state
-      |> update_in([:peers, source], fn _ -> new_peers end)
-    }
+        peers_cnt = Enum.count(new_peers)
+        nodes_cnt = Enum.count(nodes)
+    
+        grow_size =
+          cond do
+            nodes_cnt < 100 -> peers_cnt
+            nodes_cnt >= 100 -> peers_cnt / 2
+          end
+    
+        color =
+          cond do
+            peers_cnt == 0 -> vary_color("red", "E6")
+            peers_cnt == 1 -> vary_color("orange", "E6")
+            peers_cnt < 3 -> vary_color("yellow", "E6")
+            #peers_cnt >= 3 -> vary_color("green", "E6")
+            peers_cnt < 6 -> vary_color("green", "E6")
+            true -> vary_color("blue", "CC")  # whale node = blue + 80% alpha
+          end
+    
+        SigmaGraph.merge_node(
+          graph,
+          %{
+            id: source,
+            layout: "ring",
+            size: get_node_size(nodes_cnt) + grow_size,
+            color: color,
+            label: "#{source} P:#{peers_cnt}",
+            type: "border",
+            borderColor: @border_color
+          }
+        )
+    
+        has_inverse_edge = Map.get(peers, target, []) |> Enum.member?(source)
+    
+        unless has_inverse_edge do
+    
+          latency_ms = extract_latency_ms(remote_info)
+    
+          edge_color =
+            case latency_ms do
+              nil -> grey_tone()
+              ms -> latency_tinted_color(ms)
+            end
+    
+          SigmaGraph.add_edge(
+            graph,
+            %{
+              source: source,
+              target: target,
+              props: %{ type: "curved", curvature: 0.03, color: edge_color, size: 1 }
+            }
+          )
+        end
+    
+        {:noreply,
+          state
+          |> update_in([:peers, source], fn _ -> new_peers end)
+        }
+    end
   end
 
   @impl true
   def handle_info({:iroh_gossip_neighbor_down, source, target}, %{ graph: graph } = state) do
-    IO.puts("Neighbor down: #{source} #{target}")
+    # IO.puts("Neighbor down: #{source} #{target}")
     SigmaGraph.remove_edge(
       graph,
       %{
@@ -882,15 +899,47 @@ defmodule IrohLogger do
   end
 
   @impl true
+  def handle_info({:iroh_node_terminating, node_addr}, %{ graph: graph } = state) do
+    IO.puts("Node terminating: #{node_addr}")
+    SigmaGraph.merge_node(
+      graph,
+      %{
+        id: node_addr,
+        layout: "ring",
+        size: 4,
+        color: "red",
+        label: "Killed by chaos monkey",
+        type: "border",
+        borderColor: @border_color
+      }
+    )
+
+    Process.send_after(self(), {:cleanup_node, node_addr }, 3000)
+    
+    {:noreply, state }
+  end
+
+  @impl true
+  def handle_info({:cleanup_node, node_addr}, %{ graph: graph } = state) do
+    IO.puts("Node cleanup: #{node_addr}")
+    SigmaGraph.remove_node(
+      graph,
+      node_addr
+    )
+    {:noreply, state }
+  end
+
+
+  @impl true
   def handle_info({:iroh_gossip_message_received, source, payload}, %{ msg_received_cnt: msg_received_cnt, graph: graph, messages: messages, datatable: datatable } = state) do
 
     edge = %{source: payload, target: source}
-    IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
+    # IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
     Task.async(fn -> SigmaGraph.remove_edge(graph, edge) end)
-    
+
     new_messages = messages ++ [%{source: source, payload: payload}]
     Task.async(fn -> Kino.DataTable.update(datatable, new_messages) end)
-    
+
     {:noreply, state
       |> Map.put(:msg_received_cnt, msg_received_cnt + 1)
       |> Map.put(:messages, new_messages)
@@ -908,6 +957,17 @@ defmodule IrohLogger do
     {:reply, [], %{graph: graph, datatable: datatable, nodes: [], relays: [], peers: %{}, msg_received_cnt: 0, messages: []}}
   end
 
+
+  defp extract_latency_ms(remote_info) do
+    with latency when is_binary(latency) <- Map.get(remote_info, "latency"),
+         [ms_string] <- Regex.run(~r/[\d.]+/, latency),
+         {ms, _} <- Float.parse(ms_string) do
+      ms
+    else
+      _ -> nil
+    end
+  end
+
   defp grey_tone do
     shade = Enum.random(50..100) # Random grey from light to dark
     "rgb(#{shade},#{shade},#{shade}, 0.5)"
@@ -919,11 +979,45 @@ defmodule IrohLogger do
     base_color <> alpha
   end
 
+
+  defp latency_tinted_color(latency_ms) when is_float(latency_ms) do
+
+    latency_ms = :rand.uniform(300)
+
+    amount = 0.1
+
+    cond do
+      latency_ms < 10 ->
+        tint_grey(:green, amount)
+      latency_ms < 100 ->
+        tint_grey(:yellow, amount)
+      true ->
+        tint_grey(:orange, amount)
+    end
+  end
+
+  defp tint_grey(color, amount) do
+    base = grey_rgb()
+    tint = color_rgb(color)
+
+    mixed = Enum.zip(base, tint)
+            |> Enum.map(fn {g, c} -> round(g * (1 - amount) + c * amount) end)
+
+    "rgb(#{Enum.join(mixed, ",")})"
+  end
+
+  defp grey_rgb(), do: [120, 120, 120]
+
+  defp color_rgb(:green), do: [0, 200, 0]
+  defp color_rgb(:yellow), do: [255, 255, 0]
+  defp color_rgb(:orange), do: [255, 165, 0]
+
 end
 
 
 defmodule UIGenServer do
   use GenServer
+  require Logger
   @impl true
   def init( init_state ) do
 
@@ -939,14 +1033,15 @@ defmodule UIGenServer do
     {:ok, init_state
       |> Map.put(:graph, graph)
       |> Map.put(:datatable, datatable)
-      |> Map.put(:logger_pid,  logger_pid)
+      |> Map.put(:logger_pid, logger_pid)
       |> Map.put(:manager_pid, manager_pid)
       |> Map.put(:msg_counter, 1)
+      |> Map.put(:chaos_monkey, 0)
     }
   end
 
   def handle_call({:config, key, value}, _from, state) do
-    IO.puts("#{__MODULE__} :config #{key} #{value}")
+    # IO.puts("#{__MODULE__} :config #{key} #{value}")
     {:reply, value, Map.put(state, key, value)}
   end
 
@@ -979,7 +1074,7 @@ defmodule UIGenServer do
     #delay_msg_ms: delay_msg_ms
   } = state) do
 
-    IO.puts("#{__MODULE__} handle_call :start_sim num_nodes:#{num_nodes}, whale:#{whale_node_prob}")
+    # IO.puts("#{__MODULE__} handle_call :start_sim num_nodes:#{num_nodes}, whale:#{whale_node_prob}")
     Kino.DataTable.update(datatable, [])
     SigmaGraph.clear(graph)
 
@@ -1018,6 +1113,12 @@ defmodule UIGenServer do
     {:reply, [], state
       # |> Map.put(:msg_counter, msg_counter + 1)
     }
+  end
+
+  def handle_call(:start_chaos_monkey, _from, state) do
+    IO.puts("Start chaos monkey")
+    Process.send_after(self(), :chaos_monkey_round, :rand.uniform(2000))
+    {:reply, [], state}
   end
 
   @impl true
@@ -1082,7 +1183,7 @@ defmodule UIGenServer do
           # add msg node and edges
 
           # IO.inspect(recipient_nodes, label: "msg recipients")
-          
+
         end
       end)
 
@@ -1092,6 +1193,43 @@ defmodule UIGenServer do
     |> Enum.to_list()
     Process.sleep(1000)
 
+  end
+
+  @impl true
+  def handle_info(:chaos_monkey_round, %{ logger_pid: logger_pid } = state) do
+    children = IrohEx.NodeSupervisor.get_children()
+    Logger.debug("Current children count: #{length(children)}")
+
+    doomed_nodes = if length(children) > 20 do  # Increased minimum
+      nodes_to_kill = :rand.uniform(3)  # Always kill exactly one node
+      doomed = Enum.take_random(children, nodes_to_kill)
+      Logger.debug("Will kill #{nodes_to_kill} nodes")
+      doomed
+    else
+      Logger.debug("Not enough children to kill (need > 20)")
+      []
+    end
+
+    Enum.each(doomed_nodes, fn pid ->
+      if Process.alive?(pid) do
+        node_addr = GenServer.call(pid, :get_node_addr)
+        Process.send_after(logger_pid, {:iroh_node_terminating, node_addr}, 0)
+        
+        Logger.debug("Killing node #{inspect(pid)}")
+        Process.exit(pid, :kill)
+        Logger.debug("Crashed node #{inspect(pid)}")
+        # Wait longer between kills
+        Process.sleep(2000)  # Increased to 5 seconds
+      else
+        Logger.debug("Node #{inspect(pid)} already dead")
+      end
+    end)
+
+    
+
+    # Schedule next round with longer delay
+    Process.send_after(self(), :chaos_monkey_round, :rand.uniform(3000) + 1000)
+    {:noreply, state}
   end
 
   @impl true
@@ -1111,8 +1249,8 @@ defmodule UIGenServer do
         [edge | acc]
       end)
 
-    SigmaGraph.add_edges_batch(graph, edges) 
-    
+    SigmaGraph.add_edges_batch(graph, edges)
+
     {:noreply, state}
   end
 
@@ -1120,7 +1258,7 @@ defmodule UIGenServer do
   def handle_info(msg, state) do
     IO.puts("#{__MODULE__} catchall handle_info #{inspect(msg)}")
     {:noreply, state}
-  end  
+  end
 
 end
 ```
@@ -1133,6 +1271,14 @@ graph = SigmaGraph.new()
 
 ## Run stuff
 
+```elixir
+Node.connect(:"livebook_5lpuyeoq--fovd4xtx@runtime2.local")
+Node.ping(:"livebook_5lpuyeoq--fovd4xtx@runtime2")
+# node()
+
+# System.cmd("ping", ["runtime2"])
+```
+
 <!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
@@ -1144,6 +1290,9 @@ delay_msg_ms = Kino.Input.number("Delay msg random", default: 500, min: 0)
 whale_node_prob = Kino.Input.range("Whale Node Ratio (%)", default: 10, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)
+chaos_monkey_button = Kino.Control.button("Chaos monkey")
+chaos_monkey = Kino.Input.checkbox("Enable chaos monkey", default: false)
+chaos_monkey_batchsize = Kino.Input.range("Nodes Killed per batch", default: 5, min: 0, max: 10)
 setup_button = Kino.Control.button("Setup nodes")
 send_button = Kino.Control.button("Send messages")
 send_single_button = Kino.Control.button("Send message")
@@ -1166,9 +1315,10 @@ buttons = Kino.Layout.grid([setup_button,
     # send_button,
     send_single_button,
     # send_continuous_button,
+    chaos_monkey_button,
     export_button,
     reset_button
-], columns: 6)
+], columns: 5)
 
 # Display Controls
 grid =
@@ -1181,8 +1331,10 @@ grid =
       #delay_msg_ms,
       # num_messages,
       use_random,
-      whale_node_prob
-    ], 
+      whale_node_prob,
+      chaos_monkey,
+      chaos_monkey_batchsize
+    ],
       columns: 2
     ),
     datatable
@@ -1223,7 +1375,11 @@ Kino.Control.tagged_stream(
   send_button: send_button,
   send_single_button: send_single_button,
   reset_button: reset_button,
-  export_button: export_button
+  export_button: export_button,
+  chaos_monkey: chaos_monkey,
+  chaos_monkey_batchsize: chaos_monkey_batchsize,
+  chaos_monkey_button: chaos_monkey_button
+
 )
 |> Kino.listen(fn {key, event} ->
 
@@ -1235,7 +1391,7 @@ Kino.Control.tagged_stream(
       end
     :click ->
       case key do
-        :setup_button -> 
+        :setup_button ->
           GenServer.call(ui_pid, :reset)
           GenServer.call(ui_pid, :start_sim, 30_000)
         :send_button -> GenServer.call(ui_pid, :send_messages, 30_000)
@@ -1245,6 +1401,7 @@ Kino.Control.tagged_stream(
             graph,
             %{width: 3000, height: 3000}
           )
+        :chaos_monkey_button -> GenServer.call(ui_pid, :start_chaos_monkey)
       end
   end
 
