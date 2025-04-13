@@ -5,7 +5,7 @@ defmodule IrohExTest do
   alias IrohEx.NodeConfig
   @node_cnt 100
   # 10_000
-  @msg_cnt 10
+  @msg_cnt 1000
   @rand_msg_delay 50
   @use_random_sender true
   @delay_after_connect 1000

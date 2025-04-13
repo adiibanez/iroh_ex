@@ -209,7 +209,7 @@ defmodule IrohEx.NodeSupervisor do
 
     case DynamicSupervisor.start_child(__MODULE__, child_spec) do
       {:ok, pid} when is_pid(pid) ->
-        Logger.debug("Added node #{node_id}")
+        # Logger.debug("Added node #{node_id}")
         {:ok, pid}
 
       {:error, {:already_started, _pid}} ->

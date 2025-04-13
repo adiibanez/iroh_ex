@@ -31,7 +31,13 @@ iroh = {version = "0.34.1", features = ["discovery-local-network"]}
 # , rev = "8064448e7923960931728c256877138f33ca8282"
 # , rev = "22bf681a7db49da735c25ca831cd94c206e53a48"
 # iroh-gossip = { git = "https://github.com/n0-computer/iroh-gossip.git", rev = "6c72d298032ba49736f52ed13b32f556acd2f298"}
-iroh-gossip = {version = "0.34.1", git = "https://github.com/n0-computer/iroh-gossip.git", rev = "98b4a1b9f86f39575c7670d80facdb82659c004a"}
+iroh-gossip = {version = "0.34.1", git = "https://github.com/n0-computer/iroh-gossip.git", rev = "90bd921601429a67b1785324280d276bb747275d"}
+# refactor(hyparview): only add peers to active view after explict Neighbor message#56
+# 90bd921601429a67b1785324280d276bb747275d
+
+# not sure what PR: 
+# 98b4a1b9f86f39575c7670d80facdb82659c004a
+
 # iroh-gossip = "0.34.1"
 
 # hickory-resolver = "0.25.1"

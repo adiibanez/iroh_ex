@@ -114,21 +114,12 @@ impl Message {
     }
 }
 
-fn string_to_32_byte_array(s: &str) -> [u8; 32] {
-    let mut result = [0u8; 32];
-    let bytes = s.as_bytes();
-    let len = std::cmp::min(bytes.len(), 32);
-    result[..len].copy_from_slice(&bytes[..len]);
-    result
-}
-
 #[rustler::nif]
 pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
     let mut rng = OsRng;
     let secret_key = SecretKey::generate(&mut rng);
     Ok(secret_key.to_string())
 }
-
 
 #[derive(NifStruct)]
 #[module = "IrohEx.NodeConfig"]
@@ -145,49 +136,62 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
     let monitor_pid = pid;
     let topic_name = TOPIC_NAME.to_string();
 
+
+    // let relay_url_str = env::var("RELAY_URL").unwrap_or_else(|_| "http://localhost:3340".to_string());
+
+    // let relay_url = RelayUrl::from_str(&relay_url_str)
+    //     .expect("Failed to parse relay url from environment or default");
+    // let relay_map = RelayMap::from_url(relay_url);
+
+    // // let relay_url_str = "https://euw1-1.relay.iroh.network./";
+    // let relay_url_str = "http://localhost:3340";
+
+    // let relay_url = RelayUrl::from_str(relay_url_str).expect("Failed to parse relay url");
+    // let relay_map = RelayMap::from_url(relay_url);
+
+    let relay_mode = if let Ok(url_str) = env::var("RELAY_URL") {
+        let relay_url = RelayUrl::from_str(&url_str)
+            .expect("Failed to parse RELAY_URL");
+        let relay_map = RelayMap::from_url(relay_url);
+        RelayMode::Custom(relay_map)
+    } else if env::var("RELAY_EU_ONLY").is_ok() {
+        let relay_url = RelayUrl::from_str("https://euw1-1.relay.iroh.network./")
+            .expect("Failed to parse hardcoded EU relay URL");
+        let relay_map = RelayMap::from_url(relay_url);
+        RelayMode::Custom(relay_map)
+    } else if node_config.relay_urls.len() > 0 {
+        let relay_url = RelayUrl::from_str(&node_config.relay_urls[0])
+            .expect("Failed to parse relay url");
+        let relay_map = RelayMap::from_url(relay_url);
+        RelayMode::Custom(relay_map)
+    } else if env::var("RELAY_DISABLED").is_ok() {
+        RelayMode::Disabled
+    } else {
+        RelayMode::Default
+    };
+    
+    tracing::debug!("RELAY config {:?}", relay_mode);
+
+    let endpoint_builder = Endpoint::builder()
+        .relay_mode(relay_mode)
+        .discovery_n0()
+        .discovery_local_network();
+
+    let endpoint_builder = endpoint_builder.discovery_n0();
+
+    let hyparview_config = if node_config.is_whale_node {
+        iroh_gossip::proto::HyparviewConfig {
+            active_view_capacity: node_config.active_view_capacity as usize,
+            passive_view_capacity: node_config.passive_view_capacity as usize,
+            ..Default::default()
+        }
+    } else {
+        iroh_gossip::proto::HyparviewConfig::default()
+    };
+    
+    let gossip_builder = Gossip::builder().membership_config(hyparview_config);
+
     let (resource, _monitor_ref) = RUNTIME.block_on(async move {
-
-        // let relay_url_str = env::var("RELAY_URL").unwrap_or_else(|_| "http://localhost:3340".to_string());
-
-        // let relay_url = RelayUrl::from_str(&relay_url_str)
-        //     .expect("Failed to parse relay url from environment or default");
-        // let relay_map = RelayMap::from_url(relay_url);
-
-        // // let relay_url_str = "https://euw1-1.relay.iroh.network./";
-        // let relay_url_str = "http://localhost:3340";
-
-        // let relay_url = RelayUrl::from_str(relay_url_str).expect("Failed to parse relay url");
-        // let relay_map = RelayMap::from_url(relay_url);
-
-        let relay_mode = if let Ok(url_str) = env::var("RELAY_URL") {
-            let relay_url = RelayUrl::from_str(&url_str)
-                .expect("Failed to parse RELAY_URL");
-            let relay_map = RelayMap::from_url(relay_url);
-            RelayMode::Custom(relay_map)
-        } else if env::var("RELAY_DISABLED").is_ok() {
-            RelayMode::Disabled
-        } else if env::var("RELAY_EU_ONLY").is_ok() {
-            let relay_url = RelayUrl::from_str("https://euw1-1.relay.iroh.network./")
-                .expect("Failed to parse hardcoded EU relay URL");
-            let relay_map = RelayMap::from_url(relay_url);
-            RelayMode::Custom(relay_map)
-        } else if node_config.relay_urls.len() > 0 {
-            let relay_url = RelayUrl::from_str(&node_config.relay_urls[0])
-                .expect("Failed to parse relay url");
-            let relay_map = RelayMap::from_url(relay_url);
-            RelayMode::Custom(relay_map)
-        } else {
-            RelayMode::Default
-        };
-        
-        tracing::info!("RELAY config {:?}", relay_mode);
-
-        let endpoint_builder = Endpoint::builder()
-            .relay_mode(relay_mode)
-            .discovery_n0()
-            .discovery_local_network();
-
-        let endpoint_builder = endpoint_builder.discovery_n0();
 
         let endpoint: Endpoint = endpoint_builder.bind()
             .await
@@ -195,18 +199,6 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
 
         let endpoint_clone = endpoint.clone();
         let router_builder = iroh::protocol::Router::builder(endpoint.clone());
-
-        let hyparview_config = if node_config.is_whale_node {
-            iroh_gossip::proto::HyparviewConfig {
-                active_view_capacity: node_config.active_view_capacity as usize,
-                passive_view_capacity: node_config.passive_view_capacity as usize,
-                ..Default::default()
-            }
-        } else {
-            iroh_gossip::proto::HyparviewConfig::default()
-        };
-        
-        let gossip_builder = Gossip::builder().membership_config(hyparview_config);
 
         let gossip = gossip_builder
             .spawn(endpoint.clone())
@@ -225,7 +217,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         let node_ids = vec![];
         let topic = gossip
             .subscribe(
-                TopicId::from_bytes(string_to_32_byte_array(&topic_name)),
+                TopicId::from_bytes(utils::string_to_32_byte_array(&topic_name)),
                 node_ids,
             )
             // .await
@@ -251,6 +243,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         // Start task inside async
         let node_addr_short = endpoint.node_id().fmt_short().clone();
         let handler_pid = monitor_pid;
+
         // let handler_monitor = monitor_ref;
 
         let erlang_event_handler_task = Some(tokio::spawn(async move {
@@ -349,7 +342,7 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
         state.endpoint.clone()
     };
 
-    let topic = TopicId::from_bytes(string_to_32_byte_array(&TOPIC_NAME.to_string()));
+    let topic = TopicId::from_bytes(utils::string_to_32_byte_array(&TOPIC_NAME.to_string()));
 
     let node_addr = RUNTIME
         .block_on(endpoint.node_addr())

@@ -2171,7 +2171,7 @@ dependencies = [
 [[package]]
 name = "iroh-gossip"
 version = "0.34.1"
-source = "git+https://github.com/n0-computer/iroh-gossip.git?rev=98b4a1b9f86f39575c7670d80facdb82659c004a#98b4a1b9f86f39575c7670d80facdb82659c004a"
+source = "git+https://github.com/n0-computer/iroh-gossip.git?rev=90bd921601429a67b1785324280d276bb747275d#90bd921601429a67b1785324280d276bb747275d"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2357,7 +2357,7 @@ dependencies = [
  "iroh",
  "iroh-blobs",
  "iroh-docs",
- "iroh-gossip 0.34.1 (git+https://github.com/n0-computer/iroh-gossip.git?rev=98b4a1b9f86f39575c7670d80facdb82659c004a)",
+ "iroh-gossip 0.34.1 (git+https://github.com/n0-computer/iroh-gossip.git?rev=90bd921601429a67b1785324280d276bb747275d)",
  "lazy_static",
  "n0-future",
  "num_cpus",

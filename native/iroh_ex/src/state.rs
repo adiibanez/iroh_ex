@@ -73,6 +73,7 @@ pub struct NodeState {
     pub event_handler_task: Option<JoinHandle<()>>,
     pub discovery_event_handler_task: Option<JoinHandle<()>>,
     pub gossip_actor: Option<ActorHandle<GossipActorMessage>>,
+    pub erlang_actor: Option<ActorHandle<ErlangMessageEvent>>,
 }
 
 impl NodeState {
@@ -98,6 +99,7 @@ impl NodeState {
             event_handler_task: None,
             discovery_event_handler_task: None,
             gossip_actor: None,
+            erlang_actor: None,
         }
     }
 }
