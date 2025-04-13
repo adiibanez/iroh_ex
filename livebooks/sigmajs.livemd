@@ -1,11 +1,13 @@
-<!-- livebook:{"app_settings":{"access_type":"public","slug":"iroh-observer"}} -->
+<!-- livebook:{"app_settings":{"access_type":"public","slug":"iroh-observer-dev"}} -->
 
 # Iroh Graphviz Observer
 
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.9"},
+  # {:iroh_ex, "~> 0.0.10"},
+  {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  # {:iroh_ex, path: "/home/adrianibanez/projects/2025_sensocto/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -246,7 +248,6 @@ defmodule SigmaGraph do
       container.style.border = "1px solid #ccc";
       container.style.backgroundColor = "#000";
 
-
       ctx.root.appendChild(container);
 
       // --- Reducers ---
@@ -311,9 +312,9 @@ defmodule SigmaGraph do
               // Highlight edges that connect the hovered node directly to a neighbor
               if (isSourceHovered || isTargetHovered || isSourceNeighbor || isTargetNeighbor) {
                   newAttributes.zIndex = 1; // Bring to front
-                  newAttributes.color = "orange"; //attributes.originalColor || attributes.color; // Restore original color
+                  newAttributes.color = attributes.originalColor || attributes.color; // Restore original color
               } else {
-                  newAttributes.zIndex = -1; // Send to back, but not invisible
+                  newAttributes.zIndex = -2; // Send to back, but not invisible
                   newAttributes.color = DIMMED_COLOR; // Make it less prominent
               }
           } else {
@@ -790,13 +791,15 @@ defmodule IrohLogger do
 
   @impl true
   def handle_info({:iroh_gossip_neighbor_up, source, target, remote_info}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
-    # IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)}")
+    
 
     case remote_info["conn_type"] do 
-      "None" -> #IO.puts("None connection type")
+      "None" -> 
+        IO.puts("Neighbor up: #{source} #{target} None connection type!")
         {:noreply, state}
 
       _ -> 
+        IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)}")
 
         new_peers = case peers[source] do
           nil -> [target]
@@ -866,7 +869,7 @@ defmodule IrohLogger do
 
   @impl true
   def handle_info({:iroh_gossip_neighbor_down, source, target}, %{ graph: graph } = state) do
-    # IO.puts("Neighbor down: #{source} #{target}")
+    IO.puts("Neighbor down: #{source} #{target}")
     SigmaGraph.remove_edge(
       graph,
       %{
@@ -1270,14 +1273,6 @@ graph = SigmaGraph.new()
 ```
 
 ## Run stuff
-
-```elixir
-Node.connect(:"livebook_5lpuyeoq--fovd4xtx@runtime2.local")
-Node.ping(:"livebook_5lpuyeoq--fovd4xtx@runtime2")
-# node()
-
-# System.cmd("ping", ["runtime2"])
-```
 
 <!-- livebook:{"reevaluate_automatically":true} -->
 
