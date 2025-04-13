@@ -9,6 +9,8 @@ Starting many nodes ( thousands ) can easily upset your network stack and / or c
 
 [![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https://github.com/adiibanez/iroh_ex/blob/main/livebooks/sigmajs.livemd)
 
+[Highres png and videos](https://github.com/adiibanez/iroh_ex/releases/tag/MEDIA)
+
 ## Installation
 
 If [available in Hex](https://hex.pm/docs/publish), the package can be installed
