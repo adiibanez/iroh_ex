@@ -5,6 +5,7 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
+  {:iroh_ex, "~> 0.0.10"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
