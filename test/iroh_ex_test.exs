@@ -5,7 +5,7 @@ defmodule IrohExTest do
   alias IrohEx.NodeConfig
   @node_cnt 100
   # 10_000
-  @msg_cnt 1000
+  @msg_cnt 10
   @rand_msg_delay 50
   @use_random_sender true
   @delay_after_connect 1000
@@ -244,8 +244,8 @@ defmodule IrohExTest do
       {:iroh_gossip_node_discovered, _node_source, _node_discovered} ->
         count_messages(%{acc | discovered: acc.discovered + 1}, timeout)
 
-      {:iroh_gossip_node_up, node_source, node_up, remote_info} ->
-        IO.puts(":iroh_gossip_node_up #{node_source} #{node_up} #{remote_info}")
+      {:iroh_gossip_node_up, node_source, node_up, remote_info, peers_count} ->
+        IO.puts(":iroh_gossip_node_up #{node_source} #{node_up} #{remote_info} #{peers_count}")
         count_messages(%{acc | neighbor_up: acc.neighbor_up + 1}, timeout)
 
 
@@ -262,7 +262,7 @@ end
 defmodule GossipParser do
   def parse_gossip_messages(messages) do
     Enum.reduce(messages, %{nodes: %{}}, fn
-      {:iroh_gossip_neighbor_up, source, discovered}, acc ->
+      {:iroh_gossip_neighbor_up, source, discovered, _remote_info, _active_peers_count}, acc ->
         update_in(acc, [:nodes, source], fn
           nil -> %{peers: [discovered], messages: [], msg_count: 0}
           node -> %{node | peers: [discovered | node.peers || []]}
@@ -278,6 +278,7 @@ defmodule GossipParser do
         end)
 
       _other, acc ->
+        IO.puts("Other event #{inspect(_other)}")
         acc
     end)
   end

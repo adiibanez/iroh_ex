@@ -6,7 +6,7 @@
 // #![allow(unused_must_use)]
 #![allow(non_local_definitions)]
 // #[cfg(not(clippy))]
-#![feature(mpmc_channel)]
+// #![feature(mpmc_channel)]
 #![allow(clippy::too_many_arguments)]
 
 use iroh::discovery::DiscoveryItem;
@@ -17,6 +17,7 @@ use iroh::RelayMap;
 use iroh::RelayMode;
 use iroh::RelayUrl;
 use iroh::endpoint::ConnectionType;
+use iroh_gossip::net::GossipSender;
 use rustler::NifStruct;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
@@ -152,17 +153,17 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
     let relay_mode = if let Ok(url_str) = env::var("RELAY_URL") {
         let relay_url = RelayUrl::from_str(&url_str)
             .expect("Failed to parse RELAY_URL");
-        let relay_map = RelayMap::from_url(relay_url);
+        let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if env::var("RELAY_EU_ONLY").is_ok() {
         let relay_url = RelayUrl::from_str("https://euw1-1.relay.iroh.network./")
             .expect("Failed to parse hardcoded EU relay URL");
-        let relay_map = RelayMap::from_url(relay_url);
+        let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if node_config.relay_urls.len() > 0 {
         let relay_url = RelayUrl::from_str(&node_config.relay_urls[0])
             .expect("Failed to parse relay url");
-        let relay_map = RelayMap::from_url(relay_url);
+        let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if env::var("RELAY_DISABLED").is_ok() {
         RelayMode::Disabled
@@ -170,7 +171,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         RelayMode::Default
     };
     
-    tracing::debug!("RELAY config {:?}", relay_mode);
+    tracing::trace!("RELAY config {:?}", relay_mode);
 
     let endpoint_builder = Endpoint::builder()
         .relay_mode(relay_mode)
@@ -183,10 +184,13 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         iroh_gossip::proto::HyparviewConfig {
             active_view_capacity: node_config.active_view_capacity as usize,
             passive_view_capacity: node_config.passive_view_capacity as usize,
+            shuffle_interval: Duration::from_secs(5),
             ..Default::default()
         }
     } else {
-        iroh_gossip::proto::HyparviewConfig::default()
+        let mut hc = iroh_gossip::proto::HyparviewConfig::default();
+        hc.shuffle_interval = Duration::from_secs(5);
+        hc
     };
     
     let gossip_builder = Gossip::builder().membership_config(hyparview_config);
@@ -206,11 +210,9 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
             .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {}", e))))?;
 
         let router = router_builder
-            .accept(GossipALPN, gossip.clone())
-            .accept(ALPN, Echo)
-            .spawn()
-            .await
-            .map_err(|e| RustlerError::Term(Box::new(format!("Router error: {}", e))))?;
+                            .accept(GossipALPN, gossip.clone())
+                            .accept(ALPN, Echo)
+                            .spawn();
 
         let router_clone = router.clone();
 
@@ -274,6 +276,8 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
                         1 => (event.atom, terms[0]).encode(env),
                         2 => (event.atom, terms[0], terms[1]).encode(env),
                         3 => (event.atom, terms[0], terms[1], terms[2]).encode(env),
+                        4 => (event.atom, terms[0], terms[1], terms[2], terms[3]).encode(env),
+                        5 => (event.atom, terms[0], terms[1], terms[2], terms[3], terms[4]).encode(env),
                         _ => (event.atom, terms.to_vec()).encode(env),
                     }
                 }) {
@@ -337,9 +341,9 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 
     let resource_arc = node_ref.0.clone();
 
-    let endpoint = {
+    let (endpoint, gossip): (Endpoint, Gossip) = {
         let state = resource_arc.lock().unwrap();
-        state.endpoint.clone()
+        (state.endpoint.clone(), state.gossip.clone())
     };
 
     let topic = TopicId::from_bytes(utils::string_to_32_byte_array(&TOPIC_NAME.to_string()));
@@ -347,6 +351,7 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
     let node_addr = RUNTIME
         .block_on(endpoint.node_addr())
         .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
+
 
     let ticket = {
         // Get our address information, includes our
@@ -534,7 +539,7 @@ async fn connect_node_async_internal(
 
         tracing::debug!("Subscribed to: {:?}", topic);
 
-        let (sender, mut receiver) = topic.split();
+        let (sender, mut receiver): (GossipSender, GossipReceiver) = topic.split();
 
         let pid_clone = pid;
         let erlang_sender_clone = erlang_sender_clone.clone();
@@ -576,45 +581,58 @@ async fn connect_node_async_internal(
                         }
 
                         Event::Gossip(GossipEvent::NeighborUp(pub_key)) => {
-                            tracing::debug!("NeighborUp {:?}", pub_key);
+
+                            use n0_future::StreamExt;
+
+                            // let neighbor_count = receiver.neighbors().count();
+                            let neighbor_count = receiver.neighbors().count();
+
+                            tracing::debug!("NeighborUp {:?} {:?}", pub_key, neighbor_count);
 
                             if erlang_sender_clone.is_closed() {
                                 tracing::error!("❌ GossipEvent::NeighborUp: erlang_sender_clone is closed");
                                 continue;
                             }
 
-                            let remote_pubkey_opt = receiver
-                                .neighbors()
-                                .find(|n| n.fmt_short() != node_id_short_clone);
+                            let remote_info = endpoint_clone.remote_info(pub_key).expect("Failed to retrieve remote_info");
 
-                            if let Some(remote_pubkey) = remote_pubkey_opt {
-                                let remote_info_string = if let Some(remote_info) = endpoint_clone
-                                    .remote_info_iter()
-                                    .find(|r| r.node_id != remote_pubkey)
-                                {
-                                    Payload::from_map(remote_info_to_map(&remote_info))
-                                } else {
-                                    Payload::Map(vec![])
-                                };
+                            // let remote_pubkey_opt = receiver
+                            //     .neighbors()
+                            //     .find(|n| n.fmt_short() != node_id_short_clone);
+
+                            // if let Some(remote_pubkey) = remote_pubkey_opt {
+                                // let remote_info_string = if let Some(remote_info) = endpoint_clone
+                                //     .remote_info_iter()
+                                //     .find(|r| r.node_id != remote_pubkey)
+                                // {
+                                //     Payload::from_map(remote_info_to_map(&remote_info))
+                                // } else {
+                                //     Payload::Map(vec![])
+                                // };
+
+                                let remote_info_payload = Payload::from_map(remote_info_to_map(&remote_info));
 
                                 let event = ErlangMessageEvent {
                                     atom: atoms::iroh_gossip_neighbor_up(),
                                     payload: Payload::List(vec![
                                         Payload::String(node_id_short_clone.clone()),
                                         Payload::String(pub_key.clone().fmt_short()),
-                                        remote_info_string,
+                                        remote_info_payload,
+                                        // Payload::String(pub_key.clone().fmt_short()),
+                                        // Payload::String("10".to_string())
+                                        Payload::Integer(neighbor_count as i64),
                                     ]),
                                 };
 
                                 match erlang_sender_clone.send(event).await {
                                     Ok(_) => {
-                                        tracing::debug!("✅ NeighborUp event sent successfully");
+                                        tracing::trace!("✅ NeighborUp event sent successfully");
                                     }
                                     Err(e) => {
                                         tracing::error!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
                                     }
                                 }
-                            }
+                            // }
                         }
 
                         Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
@@ -635,7 +653,7 @@ async fn connect_node_async_internal(
 
                             match erlang_sender_clone.send(event).await {
                                 Ok(_) => {
-                                    tracing::debug!("✅ NeighborDown event sent successfully");
+                                    tracing::trace!("✅ NeighborDown event sent successfully");
                                 }
                                 Err(e) => {
                                     tracing::error!("❌ GossipEvent::NeighborDown Failed to send erlang message: {:?}", e);
