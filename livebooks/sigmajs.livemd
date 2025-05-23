@@ -5,9 +5,13 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  # {:iroh_ex, "~> 0.0.10"},
-  {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  {:iroh_ex, "~> 0.0.10"},
+  # {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   # {:iroh_ex, path: "/home/adrianibanez/projects/2025_sensocto/checkouts/iroh_ex"},
+  # {:cozodb,
+  #          git: "https://github.com/leapsight/cozodb.git",
+  #          branch: "master"
+  # },
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -790,16 +794,18 @@ defmodule IrohLogger do
   end
 
   @impl true
-  def handle_info({:iroh_gossip_neighbor_up, source, target, remote_info}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
+  def handle_info({:iroh_gossip_neighbor_up, source, target, remote_info, active_peers}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
     
 
+    # active_peers = 0
+    
     case remote_info["conn_type"] do 
       "None" -> 
         IO.puts("Neighbor up: #{source} #{target} None connection type!")
         {:noreply, state}
 
       _ -> 
-        IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)}")
+        IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)} #{active_peers}")
 
         new_peers = case peers[source] do
           nil -> [target]
