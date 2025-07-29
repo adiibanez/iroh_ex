@@ -10,14 +10,15 @@
 
 // use pprof::ProfilerGuard;
 
-use crate::actor::ActorHandle;
-use crate::gossip_actor::GossipActorMessage;
+// use crate::actor::ActorHandle;
+// use crate::gossip_actor::GossipActorMessage;
 use iroh::{
     endpoint::Connection,
     protocol::{ProtocolHandler, Router},
     Endpoint, NodeAddr, NodeId, PublicKey, SecretKey,
 };
-use iroh_gossip::net::{Gossip, GossipSender};
+use iroh_gossip::api::GossipSender;
+use iroh_gossip::net::Gossip;
 use rustler::{Atom, Encoder, Env, LocalPid, Monitor, OwnedEnv, Term};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -72,8 +73,8 @@ pub struct NodeState {
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
     pub event_handler_task: Option<JoinHandle<()>>,
     pub discovery_event_handler_task: Option<JoinHandle<()>>,
-    pub gossip_actor: Option<ActorHandle<GossipActorMessage>>,
-    pub erlang_actor: Option<ActorHandle<ErlangMessageEvent>>,
+    // pub gossip_actor: Option<ActorHandle<GossipActorMessage>>,
+    // pub erlang_actor: Option<ActorHandle<ErlangMessageEvent>>,
 }
 
 impl NodeState {
@@ -98,8 +99,8 @@ impl NodeState {
             erlang_event_handler_task: None,
             event_handler_task: None,
             discovery_event_handler_task: None,
-            gossip_actor: None,
-            erlang_actor: None,
+            // gossip_actor: None,
+            // erlang_actor: None,
         }
     }
 }

@@ -12,12 +12,13 @@
 use iroh::discovery::DiscoveryItem;
 use iroh::endpoint::RemoteInfo;
 use iroh::endpoint::Source;
+use iroh::protocol::AcceptError;
 use iroh::PublicKey;
 use iroh::RelayMap;
 use iroh::RelayMode;
 use iroh::RelayUrl;
 use iroh::endpoint::ConnectionType;
-use iroh_gossip::net::GossipSender;
+use n0_future::TryFutureExt;
 use rustler::NifStruct;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
@@ -48,18 +49,21 @@ use iroh::{
 
 use rand::rngs::OsRng;
 
-use quic_rpc::transport::flume::FlumeConnector;
+// use quic_rpc::transport::flume::FlumeConnector;
 
-pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
-    FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,>;
-pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
-    FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,>;
+// pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
+//     FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,>;
+// pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
+//     FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,>;
 
 use iroh_gossip::{
-    net::{Event, Gossip, GossipEvent, GossipReceiver},
+    net::Gossip,
+    api::{Event, GossipSender, GossipReceiver},
     proto::TopicId,
     ALPN as GossipALPN,
 };
+
+use iroh::Watcher;
 
 use serde::{Deserialize, Serialize};
 
@@ -71,9 +75,6 @@ use rand::distributions::Alphanumeric;
 mod state;
 mod tokio_runtime;
 mod wrappers;
-mod gossip_actor;
-mod erlang_actor;
-mod actor;
 mod utils;
 
 use crate::state::NodeRef;
@@ -119,7 +120,11 @@ impl Message {
 pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
     let mut rng = OsRng;
     let secret_key = SecretKey::generate(&mut rng);
-    Ok(secret_key.to_string())
+
+    let bytes: [u8; 32] = secret_key.to_bytes();
+    let hex_string = hex::encode(bytes);
+    Ok(hex_string)
+    // Ok(secret_key.to_string())
 }
 
 #[derive(NifStruct)]
@@ -205,9 +210,9 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         let router_builder = iroh::protocol::Router::builder(endpoint.clone());
 
         let gossip = gossip_builder
-            .spawn(endpoint.clone())
-            .await
-            .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {}", e))))?;
+            .spawn(endpoint.clone());
+            // .await
+            // .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {}", e))))?;
 
         let router = router_builder
                             .accept(GossipALPN, gossip.clone())
@@ -221,9 +226,9 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
             .subscribe(
                 TopicId::from_bytes(utils::string_to_32_byte_array(&topic_name)),
                 node_ids,
-            )
+            ).await.unwrap();
             // .await
-            .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+            // .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
 
         let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
         let (sender, _receiver) = topic.split();
@@ -348,10 +353,11 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 
     let topic = TopicId::from_bytes(utils::string_to_32_byte_array(&TOPIC_NAME.to_string()));
 
-    let node_addr = RUNTIME
-        .block_on(endpoint.node_addr())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
+    // let node_addr = endpoint.node_addr().initialized();
 
+    let node_addr = RUNTIME
+        .block_on(endpoint.node_addr().initialized())
+        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
 
     let ticket = {
         // Get our address information, includes our
@@ -389,9 +395,9 @@ pub fn send_message(
 
     let resource_arc = node_ref.0.clone();
 
-    let (endpoint, gossip, sender ) = {
+    let (endpoint, gossip) = {
         let state = resource_arc.lock().unwrap();
-        (state.endpoint.clone(), state.gossip.clone(), state.sender.clone())
+        (state.endpoint.clone(), state.gossip.clone())
     };
 
     let message = Message::AboutMe {
@@ -399,12 +405,18 @@ pub fn send_message(
         name: message,
     };
 
-    let result = RUNTIME.block_on(sender.broadcast(message.to_vec().into()));
-    if let Err(e) = result {
-        tracing::error!("Failed to send message: {:?}", e);
-        return Err(RustlerError::Term(Box::new(e.to_string())));
-    }
+    {
+        let mut state = resource_arc.lock().unwrap();
 
+        let result = RUNTIME.block_on(state.sender.broadcast(message.to_vec().into()));
+        if let Err(e) = result {
+            tracing::error!("Failed to send message: {:?}", e);
+            return Err(RustlerError::Term(Box::new(e.to_string())));
+        }
+    };
+
+
+    
     Ok(node_ref)
 }
 
@@ -551,36 +563,37 @@ async fn connect_node_async_internal(
                 Ok(event) => {
         
                     match event {
-                        Event::Gossip(GossipEvent::Joined(pub_keys)) => {
-                            tracing::debug!("Joined {:?} {:?}", node_id_short_clone, pub_keys);
+                        
+                        // Event::Gossip(GossipEvent::Joined(pub_keys)) => {
+                        //     tracing::debug!("Joined {:?} {:?}", node_id_short_clone, pub_keys);
 
-                            if erlang_sender_clone.is_closed() {
-                                tracing::error!("❌ GossipEvent::Joined: erlang_sender_clone is closed");
-                                continue;
-                            }
+                        //     if erlang_sender_clone.is_closed() {
+                        //         tracing::error!("❌ GossipEvent::Joined: erlang_sender_clone is closed");
+                        //         continue;
+                        //     }
 
-                            let event = ErlangMessageEvent {
-                                atom: atoms::iroh_gossip_joined(),
-                                payload: Payload::List(vec![
-                                    Payload::String(pub_keys
-                                        .iter()
-                                        .map(|pk| pk.fmt_short())
-                                        .collect::<Vec<_>>()
-                                        .join(",")),
-                                ]),
-                            };
+                        //     let event = ErlangMessageEvent {
+                        //         atom: atoms::iroh_gossip_joined(),
+                        //         payload: Payload::List(vec![
+                        //             Payload::String(pub_keys
+                        //                 .iter()
+                        //                 .map(|pk| pk.fmt_short())
+                        //                 .collect::<Vec<_>>()
+                        //                 .join(",")),
+                        //         ]),
+                        //     };
 
-                            match erlang_sender_clone.send(event).await {
-                                Ok(_) => {
-                                    tracing::debug!("✅ Joined event sent successfully");
-                                }
-                                Err(e) => {
-                                    tracing::error!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
-                                }
-                            }
-                        }
+                        //     match erlang_sender_clone.send(event).await {
+                        //         Ok(_) => {
+                        //             tracing::debug!("✅ Joined event sent successfully");
+                        //         }
+                        //         Err(e) => {
+                        //             tracing::error!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
+                        //         }
+                        //     }
+                        // }
 
-                        Event::Gossip(GossipEvent::NeighborUp(pub_key)) => {
+                        Event::NeighborUp(pub_key) => {
 
                             use n0_future::StreamExt;
 
@@ -635,7 +648,7 @@ async fn connect_node_async_internal(
                             // }
                         }
 
-                        Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
+                        Event::NeighborDown(pub_key) => {
                             tracing::debug!("NeighborDown {:?}", pub_key);
 
                             if erlang_sender_clone.is_closed() {
@@ -661,7 +674,7 @@ async fn connect_node_async_internal(
                             }
                         }
 
-                        Event::Gossip(GossipEvent::Received(msg)) => {
+                        Event::Received(msg) => {
                             tracing::debug!("Received message: {:?}", msg);
 
                             if erlang_sender_clone.is_closed() {
@@ -859,14 +872,13 @@ pub fn cleanup(
 struct Echo;
 
 impl ProtocolHandler for Echo {
-    fn accept(&self, connection: Connection) -> BoxFuture<Result<()>> {
+    fn accept(&self, connection: Connection) -> BoxFuture<Result<(), AcceptError>> {
         Box::pin(async move {
-            let (mut send, mut recv) = connection.accept_bi().await?;
-
-            // Echo any bytes received back directly.
-            let bytes_sent = tokio::io::copy(&mut recv, &mut send).await?;
-
-            send.finish()?;
+            let (mut send, mut recv) = connection.accept_bi().await.map_err(AcceptError::from)?;
+            
+            let _bytes_sent = tokio::io::copy(&mut recv, &mut send).await.map_err(AcceptError::from)?;
+            
+            send.finish().map_err(AcceptError::from)?;
             connection.closed().await;
 
             Ok(())

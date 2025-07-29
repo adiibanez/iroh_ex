@@ -3,7 +3,8 @@ use std::ptr;
 use tokio::sync::mpsc;
 
 use iroh_gossip::{
-    net::{Event, Gossip, GossipEvent, GossipReceiver},
+    api::{Event, GossipReceiver},
+    net::Gossip,
     proto::TopicId,
     ALPN as GossipALPN,
 };
