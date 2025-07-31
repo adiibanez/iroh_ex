@@ -7,9 +7,9 @@ defmodule IrohExTest do
   # 10_000
   @msg_cnt 10
   @rand_msg_delay 50
-  @use_random_sender true
-  @delay_after_connect 1000
-  @delay_after_send 1000
+  @use_random_sender false
+  @delay_after_connect 5000
+  @delay_after_send 5000
   @max_send_concurrency 32
 
   @msg_timeout 30_000

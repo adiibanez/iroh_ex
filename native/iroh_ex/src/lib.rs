@@ -34,6 +34,7 @@ use rand::Rng;
 use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::env;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use std::fmt;
@@ -412,7 +413,10 @@ pub fn send_message(
         if let Err(e) = result {
             tracing::error!("Failed to send message: {:?}", e);
             return Err(RustlerError::Term(Box::new(e.to_string())));
+        } else {
+            tracing::debug!("Sent message: {:?}", message);
         }
+
     };
 
 
@@ -519,14 +523,41 @@ async fn connect_node_async_internal(
         }
     }
 
-    let relay_url: RelayUrl = endpoint_clone.home_relay().initialized().await.unwrap();
+    tracing::debug!("The end my only friend...");
+
+    let home_relay_watcher = endpoint_clone.home_relay();
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // RUNTIME.block_on(async {
+    //     tokio::time::sleep(Duration::from_millis(10)).await;
+    // });
+
+    /*let home_relay = RUNTIME
+        .block_on(home_relay_watcher.clone().initialized())
+        .map_err(|e| RustlerError::Term(Box::new(format!("Home relay error: {}", e))));
+
+    tracing::debug!("Home relay {:?}", home_relay);
+*/
+    /*match home_relay_watcher.initialized().await {
+        Ok(home_relay) => tracing::debug!("Homerelay: Ok {:?}", home_relay),
+        Err(error) => tracing::error!("Homerelay: NOK {:?}", error)
+    }*/
+
+    // let relay_url_test: RelayUrl = endpoint_clone.home_relay().initialized().await?;
+    // let relay_url = String::from_str("test").unwrap();
+
+    // let relay_url = endpoint_clone.home_relay().initialized().await?;
+    // let relay_url = endpoint_clone.home_relay().get().iter();
+
+    // tracing::debug!("Watcher RelayUrl: {:?}", relay_url);
 
     if let Err(e) = erlang_sender_clone
         .send(ErlangMessageEvent {
             atom: atoms::iroh_node_connected(),
             payload: Payload::List(vec![
                 Payload::String(node_id.fmt_short()),
-                Payload::String(relay_url.as_str().to_string()),
+                // Payload::String(relay_url.as_str().to_string()),
             ]),
         })
         .await
@@ -536,6 +567,8 @@ async fn connect_node_async_internal(
             e
         );
     }
+
+    
 
     let pid_clone = pid;
 
@@ -872,7 +905,7 @@ pub fn cleanup(
 struct Echo;
 
 impl ProtocolHandler for Echo {
-    fn accept(&self, connection: Connection) -> BoxFuture<Result<(), AcceptError>> {
+    fn accept(&self, connection: Connection) -> impl Future<Output = Result<(), AcceptError>> + Send {
         Box::pin(async move {
             let (mut send, mut recv) = connection.accept_bi().await.map_err(AcceptError::from)?;
             
