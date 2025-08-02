@@ -19,7 +19,7 @@ by adding `iroh_ex` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:iroh_ex, "~> 0.0.10"}
+    {:iroh_ex, "~> 0.0.12"}
   ]
 end
 ```
