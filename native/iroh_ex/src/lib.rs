@@ -10,6 +10,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use iroh::discovery::DiscoveryItem;
+use iroh::endpoint::ConnectionType;
 use iroh::endpoint::RemoteInfo;
 use iroh::endpoint::Source;
 use iroh::protocol::AcceptError;
@@ -17,13 +18,12 @@ use iroh::PublicKey;
 use iroh::RelayMap;
 use iroh::RelayMode;
 use iroh::RelayUrl;
-use iroh::endpoint::ConnectionType;
 use n0_future::TryFutureExt;
+use rustler::types::atom::Atom;
 use rustler::NifStruct;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
 };
-use rustler::types::atom::Atom;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
@@ -43,9 +43,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use iroh::{
-    endpoint::Connection,
-    protocol::ProtocolHandler,
-    Endpoint, NodeAddr, NodeId, SecretKey,
+    endpoint::Connection, protocol::ProtocolHandler, Endpoint, NodeAddr, NodeId, SecretKey,
 };
 
 use rand::rngs::OsRng;
@@ -58,8 +56,8 @@ use rand::rngs::OsRng;
 //     FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,>;
 
 use iroh_gossip::{
+    api::{Event, GossipReceiver, GossipSender},
     net::Gossip,
-    api::{Event, GossipSender, GossipReceiver},
     proto::TopicId,
     ALPN as GossipALPN,
 };
@@ -75,14 +73,14 @@ use rand::distributions::Alphanumeric;
 
 mod state;
 mod tokio_runtime;
-mod wrappers;
 mod utils;
+mod wrappers;
 
-use crate::state::NodeRef;
-use crate::state::{ErlangMessageEvent, Payload};
 use crate::state::atoms;
-use crate::tokio_runtime::RUNTIME;
+use crate::state::NodeRef;
 use crate::state::NodeState;
+use crate::state::{ErlangMessageEvent, Payload};
+use crate::tokio_runtime::RUNTIME;
 
 // debug dependencies
 // use parking_lot::deadlock;
@@ -138,11 +136,14 @@ struct NodeConfig {
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<ResourceArc<NodeRef>, RustlerError> {
+pub fn create_node(
+    env: Env,
+    pid: LocalPid,
+    node_config: NodeConfig,
+) -> Result<ResourceArc<NodeRef>, RustlerError> {
     // let env_pid_clone = env.pid();
     let monitor_pid = pid;
     let topic_name = TOPIC_NAME.to_string();
-
 
     // let relay_url_str = env::var("RELAY_URL").unwrap_or_else(|_| "http://localhost:3340".to_string());
 
@@ -157,8 +158,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
     // let relay_map = RelayMap::from_url(relay_url);
 
     let relay_mode = if let Ok(url_str) = env::var("RELAY_URL") {
-        let relay_url = RelayUrl::from_str(&url_str)
-            .expect("Failed to parse RELAY_URL");
+        let relay_url = RelayUrl::from_str(&url_str).expect("Failed to parse RELAY_URL");
         let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if env::var("RELAY_EU_ONLY").is_ok() {
@@ -167,8 +167,8 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if node_config.relay_urls.len() > 0 {
-        let relay_url = RelayUrl::from_str(&node_config.relay_urls[0])
-            .expect("Failed to parse relay url");
+        let relay_url =
+            RelayUrl::from_str(&node_config.relay_urls[0]).expect("Failed to parse relay url");
         let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if env::var("RELAY_DISABLED").is_ok() {
@@ -176,7 +176,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
     } else {
         RelayMode::Default
     };
-    
+
     tracing::trace!("RELAY config {:?}", relay_mode);
 
     let endpoint_builder = Endpoint::builder()
@@ -198,7 +198,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         hc.shuffle_interval = Duration::from_secs(5);
         hc
     };
-    
+
     let gossip_builder = Gossip::builder().membership_config(hyparview_config);
 
     let (resource, _monitor_ref) = RUNTIME.block_on(async move {
@@ -232,7 +232,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
             // .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
 
         let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
-        let (sender, _receiver) = topic.split();
+        let (sender, receiver) = topic.split();
         let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
 
         let state = NodeState::new(
@@ -241,6 +241,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
             router_clone.clone(),
             gossip.clone(),
             sender,
+            receiver,
             mpsc_event_sender,
             mpsc_event_receiver_arc.clone(),
         );
@@ -297,7 +298,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
                 }
             }
         }));
-        
+
         {
             let mut state = resource.0.lock().unwrap();
             state.erlang_event_handler_task = erlang_event_handler_task;
@@ -356,9 +357,8 @@ pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String,
 
     // let node_addr = endpoint.node_addr().initialized();
 
-    let node_addr = RUNTIME
-        .block_on(endpoint.node_addr().initialized())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
+    let node_addr = RUNTIME.block_on(endpoint.node_addr().initialized());
+    // .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
 
     let ticket = {
         // Get our address information, includes our
@@ -396,9 +396,13 @@ pub fn send_message(
 
     let resource_arc = node_ref.0.clone();
 
-    let (endpoint, gossip) = {
+    let (endpoint, gossip, sender) = {
         let state = resource_arc.lock().unwrap();
-        (state.endpoint.clone(), state.gossip.clone())
+        (
+            state.endpoint.clone(),
+            state.gossip.clone(),
+            state.sender.clone(),
+        )
     };
 
     let message = Message::AboutMe {
@@ -406,21 +410,12 @@ pub fn send_message(
         name: message,
     };
 
-    {
-        let mut state = resource_arc.lock().unwrap();
+    let result = RUNTIME.block_on(sender.broadcast(message.to_vec().into()));
+    if let Err(e) = result {
+        tracing::error!("Failed to send message: {:?}", e);
+        return Err(RustlerError::Term(Box::new(e.to_string())));
+    }
 
-        let result = RUNTIME.block_on(state.sender.broadcast(message.to_vec().into()));
-        if let Err(e) = result {
-            tracing::error!("Failed to send message: {:?}", e);
-            return Err(RustlerError::Term(Box::new(e.to_string())));
-        } else {
-            tracing::debug!("Sent message: {:?}", message);
-        }
-
-    };
-
-
-    
     Ok(node_ref)
 }
 
@@ -523,22 +518,20 @@ async fn connect_node_async_internal(
         }
     }
 
-    tracing::debug!("The end my only friend...");
+    // let home_relay_watcher = endpoint_clone.home_relay();
 
-    let home_relay_watcher = endpoint_clone.home_relay();
-
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // tokio::time::sleep(Duration::from_millis(10)).await;
 
     // RUNTIME.block_on(async {
     //     tokio::time::sleep(Duration::from_millis(10)).await;
     // });
 
     /*let home_relay = RUNTIME
-        .block_on(home_relay_watcher.clone().initialized())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Home relay error: {}", e))));
+            .block_on(home_relay_watcher.clone().initialized())
+            .map_err(|e| RustlerError::Term(Box::new(format!("Home relay error: {}", e))));
 
-    tracing::debug!("Home relay {:?}", home_relay);
-*/
+        tracing::debug!("Home relay {:?}", home_relay);
+    */
     /*match home_relay_watcher.initialized().await {
         Ok(home_relay) => tracing::debug!("Homerelay: Ok {:?}", home_relay),
         Err(error) => tracing::error!("Homerelay: NOK {:?}", error)
@@ -568,13 +561,42 @@ async fn connect_node_async_internal(
         );
     }
 
-    
+    // if let Err(e) = erlang_sender_clone
+    //     .send(ErlangMessageEvent {
+    //         atom: atoms::iroh_node_test(),
+    //         payload: Payload::List(vec![
+    //             Payload::String("Outer msg".to_string()),
+    //             // Payload::String(relay_url.as_str().to_string()),
+    //         ]),
+    //     })
+    //     .await
+    // {
+    //     tracing::warn!(
+    //         "❌ GossipEvent::Joined Failed to send erlang message: {:?}",
+    //         e
+    //     );
+    // }
 
     let pid_clone = pid;
 
     let erlang_sender_clone_inner = erlang_sender_clone.clone();
-
     let event_handler_task = Some(RUNTIME.spawn(async move {
+
+        // if let Err(e) = erlang_sender_clone_inner
+        //     .send(ErlangMessageEvent {
+        //         atom: atoms::iroh_node_test(),
+        //         payload: Payload::List(vec![
+        //             Payload::String("Inner msg".to_string()),
+        //             // Payload::String(relay_url.as_str().to_string()),
+        //         ]),
+        //     })
+        //     .await
+        // {
+        //     tracing::warn!(
+        //         "❌ GossipEvent::Joined Failed to send erlang message: {:?}",
+        //         e
+        //     );
+        // }
 
         let topic = gossip
             .subscribe_and_join(topic, node_ids)
@@ -584,47 +606,30 @@ async fn connect_node_async_internal(
 
         tracing::debug!("Subscribed to: {:?}", topic);
 
-        let (sender, mut receiver): (GossipSender, GossipReceiver) = topic.split();
-
         let pid_clone = pid;
-        let erlang_sender_clone = erlang_sender_clone.clone();
+        // let erlang_sender_clone = erlang_sender_clone.clone();
         let node_id_short_clone = node_id_short.clone();
 
-        
+        let (sender, mut receiver): (GossipSender, GossipReceiver) = topic.split();
+
+        {
+            let mut state = node_ref_clone.0.lock().unwrap();
+            state.sender = sender.clone();
+        }
+
+        /*// ⬇️ Debug, Keep sender alive!
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(600)).await;
+            }
+        });*/
+
         while let Some(event) = receiver.next().await {
             match event {
                 Ok(event) => {
-        
+                    // tracing::debug!("Event {:?}", event);
+
                     match event {
-                        
-                        // Event::Gossip(GossipEvent::Joined(pub_keys)) => {
-                        //     tracing::debug!("Joined {:?} {:?}", node_id_short_clone, pub_keys);
-
-                        //     if erlang_sender_clone.is_closed() {
-                        //         tracing::error!("❌ GossipEvent::Joined: erlang_sender_clone is closed");
-                        //         continue;
-                        //     }
-
-                        //     let event = ErlangMessageEvent {
-                        //         atom: atoms::iroh_gossip_joined(),
-                        //         payload: Payload::List(vec![
-                        //             Payload::String(pub_keys
-                        //                 .iter()
-                        //                 .map(|pk| pk.fmt_short())
-                        //                 .collect::<Vec<_>>()
-                        //                 .join(",")),
-                        //         ]),
-                        //     };
-
-                        //     match erlang_sender_clone.send(event).await {
-                        //         Ok(_) => {
-                        //             tracing::debug!("✅ Joined event sent successfully");
-                        //         }
-                        //         Err(e) => {
-                        //             tracing::error!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
-                        //         }
-                        //     }
-                        // }
 
                         Event::NeighborUp(pub_key) => {
 
@@ -633,9 +638,9 @@ async fn connect_node_async_internal(
                             // let neighbor_count = receiver.neighbors().count();
                             let neighbor_count = receiver.neighbors().count();
 
-                            tracing::debug!("NeighborUp {:?} {:?}", pub_key, neighbor_count);
+                            // tracing::debug!("NeighborUp {:?} {:?}", pub_key, neighbor_count);
 
-                            if erlang_sender_clone.is_closed() {
+                            if erlang_sender_clone_inner.is_closed() {
                                 tracing::error!("❌ GossipEvent::NeighborUp: erlang_sender_clone is closed");
                                 continue;
                             }
@@ -670,7 +675,7 @@ async fn connect_node_async_internal(
                                     ]),
                                 };
 
-                                match erlang_sender_clone.send(event).await {
+                                match erlang_sender_clone_inner.send(event).await {
                                     Ok(_) => {
                                         tracing::trace!("✅ NeighborUp event sent successfully");
                                     }
@@ -682,9 +687,9 @@ async fn connect_node_async_internal(
                         }
 
                         Event::NeighborDown(pub_key) => {
-                            tracing::debug!("NeighborDown {:?}", pub_key);
+                            // tracing::debug!("NeighborDown {:?}", pub_key);
 
-                            if erlang_sender_clone.is_closed() {
+                            if erlang_sender_clone_inner.is_closed() {
                                 tracing::error!("❌ GossipEvent::NeighborDown: erlang_sender_clone is closed");
                                 continue;
                             }
@@ -697,7 +702,7 @@ async fn connect_node_async_internal(
                                 ]),
                             };
 
-                            match erlang_sender_clone.send(event).await {
+                            match erlang_sender_clone_inner.send(event).await {
                                 Ok(_) => {
                                     tracing::trace!("✅ NeighborDown event sent successfully");
                                 }
@@ -708,9 +713,9 @@ async fn connect_node_async_internal(
                         }
 
                         Event::Received(msg) => {
-                            tracing::debug!("Received message: {:?}", msg);
+                            // tracing::debug!("Received message: {:?}", msg);
 
-                            if erlang_sender_clone.is_closed() {
+                            if erlang_sender_clone_inner.is_closed() {
                                 tracing::error!("❌ GossipEvent::Received: erlang_sender_clone is closed");
                                 continue;
                             }
@@ -728,7 +733,7 @@ async fn connect_node_async_internal(
                                             ]),
                                         };
 
-                                        match erlang_sender_clone.send(event).await {
+                                        match erlang_sender_clone_inner.send(event).await {
                                             Ok(_) => {
                                                 tracing::debug!("✅ Message received event sent successfully");
                                             }
@@ -750,7 +755,7 @@ async fn connect_node_async_internal(
                             tracing::debug!("🔍 Ignored unhandled event: {:?}", unhandled_event);
                             let message = format!("🔍 Ignored unhandled event: {:?}", unhandled_event);
 
-                            if let Err(e) = erlang_sender_clone
+                            if let Err(e) = erlang_sender_clone_inner
                                 .send(ErlangMessageEvent {
                                     atom: atoms::iroh_gossip_message_unhandled(),
                                     payload: Payload::List(vec![
@@ -778,9 +783,13 @@ async fn connect_node_async_internal(
         state.event_handler_task = event_handler_task;
     }
 
+    // {
+    //     let state = node_ref.0.lock().unwrap();
+    //     tracing::debug!("Event_handler {:?}", state.event_handler_task);
+    // }
+
     Ok(())
 }
-
 
 use std::collections::HashMap;
 
@@ -825,7 +834,6 @@ fn remote_info_to_map(info: &RemoteInfo) -> HashMap<String, String> {
     map
 }
 
-
 #[rustler::nif(schedule = "DirtyCpu")]
 fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
     let node = node_ref.0.clone();
@@ -854,30 +862,35 @@ fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
     };
 
     let remote_info_vec: Vec<RemoteInfo> = endpoint
-                    .remote_info_iter()
-                    // .filter(|n| n.node_id != node_addr.node_id)
-                    .collect::<Vec<_>>();
+        .remote_info_iter()
+        // .filter(|n| n.node_id != node_addr.node_id)
+        .collect::<Vec<_>>();
 
     for info in &remote_info_vec {
         tracing::info!("{}", format_remote_info(info));
     }
-    
-    //let peers: Vec<_> = vec![]; 
-    let peers: Vec<_> = remote_info_vec.iter().map(|ri| {
-        let latency_str = match ri.latency {
-            Some(latency) => format!("{:?}", latency),
-            None => "N/A".to_string(),
-        };
-        format!("node_id:{:?},conn_type:{:?},latency:{}", ri.node_id.fmt_short(), ri.conn_type, latency_str)
-    }).collect();
+
+    //let peers: Vec<_> = vec![];
+    let peers: Vec<_> = remote_info_vec
+        .iter()
+        .map(|ri| {
+            let latency_str = match ri.latency {
+                Some(latency) => format!("{:?}", latency),
+                None => "N/A".to_string(),
+            };
+            format!(
+                "node_id:{:?},conn_type:{:?},latency:{}",
+                ri.node_id.fmt_short(),
+                ri.conn_type,
+                latency_str
+            )
+        })
+        .collect();
     Ok(peers)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn cleanup(
-    env: Env,
-    node_ref: ResourceArc<NodeRef>,
-) -> NifResult<()> {
+pub fn cleanup(env: Env, node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
     // Get the monitor ref before dropping
     let monitor_ref = {
         let state = node_ref.0.lock().unwrap();
@@ -905,12 +918,17 @@ pub fn cleanup(
 struct Echo;
 
 impl ProtocolHandler for Echo {
-    fn accept(&self, connection: Connection) -> impl Future<Output = Result<(), AcceptError>> + Send {
+    fn accept(
+        &self,
+        connection: Connection,
+    ) -> impl Future<Output = Result<(), AcceptError>> + Send {
         Box::pin(async move {
             let (mut send, mut recv) = connection.accept_bi().await.map_err(AcceptError::from)?;
-            
-            let _bytes_sent = tokio::io::copy(&mut recv, &mut send).await.map_err(AcceptError::from)?;
-            
+
+            let _bytes_sent = tokio::io::copy(&mut recv, &mut send)
+                .await
+                .map_err(AcceptError::from)?;
+
             send.finish().map_err(AcceptError::from)?;
             connection.closed().await;
 
@@ -939,7 +957,6 @@ async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
     while let Some(result) = stream.next().await {
         match result {
             Ok(discovery_item) => {
-
                 let node_addr: NodeAddr = (discovery_item as DiscoveryItem).into_node_addr();
 
                 // let remote_info: RemoteInfo = endpoint.remote_info_iter()
@@ -995,14 +1012,21 @@ async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
     }
 }
 
-
 fn format_remote_info(info: &RemoteInfo) -> String {
     let mut out = String::new();
 
     use std::fmt::Write;
 
     writeln!(out, "🧩 Node: {}", info.node_id.fmt_short()).ok();
-    writeln!(out, "  Relay: {}", info.relay_url.as_ref().map(|r| r.relay_url.to_string()).unwrap_or("None".into())).ok();
+    writeln!(
+        out,
+        "  Relay: {}",
+        info.relay_url
+            .as_ref()
+            .map(|r| r.relay_url.to_string())
+            .unwrap_or("None".into())
+    )
+    .ok();
     let _ = writeln!(out, "  Conn Type: {:?}", info.conn_type);
     let _ = writeln!(out, "  Latency: {:?}", info.latency);
     let _ = writeln!(out, "  Addresses:");
@@ -1077,7 +1101,6 @@ fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
-
 // fn setup_console_subscriber_once() {
 //     let _ = Registry::default()
 //         .with(ConsoleLayer::builder().with_default_env().spawn())
@@ -1085,7 +1108,6 @@ fn add(a: i64, b: i64) -> i64 {
 // }
 
 // Rustler init
-
 
 // fn start_deadlock_checker() {
 //     thread::spawn(move || loop {
@@ -1103,7 +1125,6 @@ fn add(a: i64, b: i64) -> i64 {
 //         }
 //     });
 // }
-
 
 // pub fn start_continuous_flamegraph(interval_secs: u64) {
 //     thread::spawn(move || {

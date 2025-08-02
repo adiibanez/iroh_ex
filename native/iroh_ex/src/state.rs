@@ -17,7 +17,7 @@ use iroh::{
     protocol::{ProtocolHandler, Router},
     Endpoint, NodeAddr, NodeId, PublicKey, SecretKey,
 };
-use iroh_gossip::api::GossipSender;
+use iroh_gossip::api::{GossipReceiver, GossipSender};
 use iroh_gossip::net::Gossip;
 use rustler::{Atom, Encoder, Env, LocalPid, Monitor, OwnedEnv, Term};
 use std::sync::Arc;
@@ -68,6 +68,7 @@ pub struct NodeState {
     pub router: Router,
     pub gossip: Gossip,
     pub sender: GossipSender,
+    pub receiver: GossipReceiver,
     pub mpsc_event_sender: Sender<ErlangMessageEvent>,
     pub mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
@@ -84,6 +85,7 @@ impl NodeState {
         router: Router,
         gossip: Gossip,
         sender: GossipSender,
+        receiver: GossipReceiver,
         mpsc_event_sender: Sender<ErlangMessageEvent>,
         mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
     ) -> Self {
@@ -94,6 +96,7 @@ impl NodeState {
             router,
             gossip,
             sender,
+            receiver,
             mpsc_event_sender,
             mpsc_event_receiver,
             erlang_event_handler_task: None,
@@ -107,7 +110,7 @@ impl NodeState {
 
 impl Drop for NodeState {
     fn drop(&mut self) {
-        // tracing::info!("🚀 Cleaning up NodeState before exit!");
+        tracing::debug!("🚀 Cleaning up NodeState before exit!");
 
         if let Some(handle) = self.erlang_event_handler_task.take() {
             handle.abort();
@@ -126,7 +129,7 @@ impl Drop for NodeState {
         let monitor_ref = self.monitor_ref;
 
         RUNTIME.spawn(async move {
-            gossip.shutdown().await;
+            let _ = gossip.shutdown().await;
             let _ = router.shutdown().await;
             endpoint.close().await;
             tracing::debug!("✅ NodeState cleanup complete!");
@@ -200,6 +203,7 @@ pub mod atoms {
 
         // TODO: rename non gossip related events to _node_ in both rust / elixir
         iroh_node_connected,
+        iroh_node_test,
         iroh_gossip_joined,
         iroh_gossip_neighbor_up,
         iroh_gossip_neighbor_down,

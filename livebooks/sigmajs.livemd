@@ -5,7 +5,7 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.10"},
+  {:iroh_ex, "~> 0.0.12"},
   # {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
   # {:iroh_ex, path: "/home/adrianibanez/projects/2025_sensocto/checkouts/iroh_ex"},
   # {:cozodb,
@@ -795,32 +795,32 @@ defmodule IrohLogger do
 
   @impl true
   def handle_info({:iroh_gossip_neighbor_up, source, target, remote_info, active_peers}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
-    
+
 
     # active_peers = 0
-    
-    case remote_info["conn_type"] do 
-      "None" -> 
+
+    case remote_info["conn_type"] do
+      "None" ->
         IO.puts("Neighbor up: #{source} #{target} None connection type!")
         {:noreply, state}
 
-      _ -> 
+      _ ->
         IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)} #{active_peers}")
 
         new_peers = case peers[source] do
           nil -> [target]
           peers -> peers ++ [target]
         end
-    
+
         peers_cnt = Enum.count(new_peers)
         nodes_cnt = Enum.count(nodes)
-    
+
         grow_size =
           cond do
             nodes_cnt < 100 -> peers_cnt
             nodes_cnt >= 100 -> peers_cnt / 2
           end
-    
+
         color =
           cond do
             peers_cnt == 0 -> vary_color("red", "E6")
@@ -830,7 +830,7 @@ defmodule IrohLogger do
             peers_cnt < 6 -> vary_color("green", "E6")
             true -> vary_color("blue", "CC")  # whale node = blue + 80% alpha
           end
-    
+
         SigmaGraph.merge_node(
           graph,
           %{
@@ -843,19 +843,19 @@ defmodule IrohLogger do
             borderColor: @border_color
           }
         )
-    
+
         has_inverse_edge = Map.get(peers, target, []) |> Enum.member?(source)
-    
+
         unless has_inverse_edge do
-    
+
           latency_ms = extract_latency_ms(remote_info)
-    
+
           edge_color =
             case latency_ms do
               nil -> grey_tone()
               ms -> latency_tinted_color(ms)
             end
-    
+
           SigmaGraph.add_edge(
             graph,
             %{
@@ -865,7 +865,7 @@ defmodule IrohLogger do
             }
           )
         end
-    
+
         {:noreply,
           state
           |> update_in([:peers, source], fn _ -> new_peers end)
@@ -924,7 +924,7 @@ defmodule IrohLogger do
     )
 
     Process.send_after(self(), {:cleanup_node, node_addr }, 3000)
-    
+
     {:noreply, state }
   end
 
@@ -1223,7 +1223,7 @@ defmodule UIGenServer do
       if Process.alive?(pid) do
         node_addr = GenServer.call(pid, :get_node_addr)
         Process.send_after(logger_pid, {:iroh_node_terminating, node_addr}, 0)
-        
+
         Logger.debug("Killing node #{inspect(pid)}")
         Process.exit(pid, :kill)
         Logger.debug("Crashed node #{inspect(pid)}")
@@ -1234,7 +1234,7 @@ defmodule UIGenServer do
       end
     end)
 
-    
+
 
     # Schedule next round with longer delay
     Process.send_after(self(), :chaos_monkey_round, :rand.uniform(3000) + 1000)
@@ -1288,7 +1288,7 @@ graph = SigmaGraph.new()
 num_nodes = Kino.Input.number("Number of Nodes", default: 50, min: 3)
 delay_ms = Kino.Input.number("Delay after connecting a batch of nodes", default: 300, min: 0)
 delay_msg_ms = Kino.Input.number("Delay msg random", default: 500, min: 0)
-whale_node_prob = Kino.Input.range("Whale Node Ratio (%)", default: 10, min: 0)
+whale_node_prob = Kino.Input.range("Whale Node Ratio (%)", default: 5, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 chaos_monkey_button = Kino.Control.button("Chaos monkey")
