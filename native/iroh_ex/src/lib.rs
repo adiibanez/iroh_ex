@@ -937,80 +937,80 @@ impl ProtocolHandler for Echo {
     }
 }
 
-// async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
-async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
-    let (endpoint, erlang_sender_clone, mut stream) = {
-        let state = node_ref.0.lock().unwrap(); // Acquire lock
-        (
-            state.endpoint.clone() as Endpoint,
-            state.mpsc_event_sender.clone() as tokio::sync::mpsc::Sender<ErlangMessageEvent>,
-            state.endpoint.discovery_stream(), // as Stream<Item = Result<DiscoveryItem, Lagged>>
-        )
-    };
+// // async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
+// async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
+//     let (endpoint, erlang_sender_clone, mut stream) = {
+//         let state = node_ref.0.lock().unwrap(); // Acquire lock
+//         (
+//             state.endpoint.clone() as Endpoint,
+//             state.mpsc_event_sender.clone() as tokio::sync::mpsc::Sender<ErlangMessageEvent>,
+//             state.endpoint.discovery_stream(), // as Stream<Item = Result<DiscoveryItem, Lagged>>
+//         )
+//     };
 
-    // let endpoint = state_clone.endpoint.clone();
-    // let erlang_sender_clone = state_clone.mpsc_event_sender.clone();
+//     // let endpoint = state_clone.endpoint.clone();
+//     // let erlang_sender_clone = state_clone.mpsc_event_sender.clone();
 
-    // let mut stream = endpoint.discovery_stream();
-    let msg_env = OwnedEnv::new();
+//     // let mut stream = endpoint.discovery_stream();
+//     let msg_env = OwnedEnv::new();
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(discovery_item) => {
-                let node_addr: NodeAddr = (discovery_item as DiscoveryItem).into_node_addr();
+//     while let Some(result) = stream.next().await {
+//         match result {
+//             Ok(discovery_item) => {
+//                 let node_addr: NodeAddr = (discovery_item as DiscoveryItem).into_node_addr();
 
-                // let remote_info: RemoteInfo = endpoint.remote_info_iter()
-                //     .into(Vec)
-                //     // .find(|n| n.node_id == node_addr.node_id)
-                //     .expect("Expected at least one RemoteInfo");
+//                 // let remote_info: RemoteInfo = endpoint.remote_info_iter()
+//                 //     .into(Vec)
+//                 //     // .find(|n| n.node_id == node_addr.node_id)
+//                 //     .expect("Expected at least one RemoteInfo");
 
-                let remote_info_vec: Vec<RemoteInfo> = endpoint
-                    .remote_info_iter()
-                    .filter(|n| n.node_id != node_addr.node_id)
-                    .collect::<Vec<_>>();
+//                 let remote_info_vec: Vec<RemoteInfo> = endpoint
+//                     .remote_info_iter()
+//                     .filter(|n| n.node_id != node_addr.node_id)
+//                     .collect::<Vec<_>>();
 
-                for info in &remote_info_vec {
-                    tracing::info!("{}", format_remote_info(info));
-                }
+//                 for info in &remote_info_vec {
+//                     tracing::info!("{}", format_remote_info(info));
+//                 }
 
-                // tracing::info!(
-                //     "🔍 {:?} Discovered Node: {:?}",
-                //     endpoint.node_id().fmt_short(),
-                //     node_addr,
-                //     // remote_info_vec
-                //     //     .iter()
-                //     //     .map(|info| format!("{:?}", info)) // or use `to_string()` if `Display` is implemented
-                //     //     .collect::<Vec<_>>()
-                //     //     .join("\n\n")
-                // );
+//                 // tracing::info!(
+//                 //     "🔍 {:?} Discovered Node: {:?}",
+//                 //     endpoint.node_id().fmt_short(),
+//                 //     node_addr,
+//                 //     // remote_info_vec
+//                 //     //     .iter()
+//                 //     //     .map(|info| format!("{:?}", info)) // or use `to_string()` if `Display` is implemented
+//                 //     //     .collect::<Vec<_>>()
+//                 //     //     .join("\n\n")
+//                 // );
 
-                // if let Err(e) = erlang_sender_clone
-                //     .send(ErlangMessageEvent {
-                //         atom: atoms::iroh_gossip_node_discovered(),
-                //         payload: vec![
-                //             endpoint.node_id().fmt_short(),
-                //             node_addr.node_id.fmt_short(),
-                //             format!("{:?}", remote_info.latency)
-                //         ],
-                //     })
-                //     .await
-                // {
-                //     tracing::warn!(
-                //         "❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}",
-                //         e
-                //     );
-                // }
-            }
-            Err(lagged) => {
-                tracing::warn!(
-                    "🚨 {:?} Discovery stream lagged! Some items may have been lost.{:?}",
-                    endpoint.node_id().fmt_short(),
-                    lagged
-                );
-            }
-        }
-    }
-}
+//                 // if let Err(e) = erlang_sender_clone
+//                 //     .send(ErlangMessageEvent {
+//                 //         atom: atoms::iroh_gossip_node_discovered(),
+//                 //         payload: vec![
+//                 //             endpoint.node_id().fmt_short(),
+//                 //             node_addr.node_id.fmt_short(),
+//                 //             format!("{:?}", remote_info.latency)
+//                 //         ],
+//                 //     })
+//                 //     .await
+//                 // {
+//                 //     tracing::warn!(
+//                 //         "❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}",
+//                 //         e
+//                 //     );
+//                 // }
+//             }
+//             Err(lagged) => {
+//                 tracing::warn!(
+//                     "🚨 {:?} Discovery stream lagged! Some items may have been lost.{:?}",
+//                     endpoint.node_id().fmt_short(),
+//                     lagged
+//                 );
+//             }
+//         }
+//     }
+// }
 
 fn format_remote_info(info: &RemoteInfo) -> String {
     let mut out = String::new();
