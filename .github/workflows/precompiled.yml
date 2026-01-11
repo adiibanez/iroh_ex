@@ -47,7 +47,7 @@ jobs:
             }
           # - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, use-cross: true }
           - { target: aarch64-apple-darwin, os: macos-14 }
-          - { target: x86_64-apple-darwin, os: macos-13 }
+          - { target: x86_64-apple-darwin, os: macos-15-intel }
           # - { target: aarch64-apple-ios-sim, os: macos-14} # , cargo-args: "+nightly"
           # - { target: aarch64-apple-ios, os: macos-14}
           # - { target: x86_64-apple-ios, os: macos-14}
