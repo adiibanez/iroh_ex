@@ -209,6 +209,23 @@ jobs:
           path: ${{ steps.build-crate.outputs.file-path }}
           retention-days: 5
 
+  publish_release:
+    name: Publish Release
+    needs: build_release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -name "*.tar.gz" -o -name "*.zip"
+
       - name: Publish archives and packages
         uses: softprops/action-gh-release@v2
         with:
@@ -216,5 +233,5 @@ jobs:
           append_body: true
           generate_release_notes: true
           files: |
-            ${{ steps.build-crate.outputs.file-path }}
-        if: startsWith(github.ref, 'refs/tags/')
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
