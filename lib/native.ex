@@ -62,7 +62,7 @@ defmodule IrohEx.Native do
   @spec generate_secretkey() :: {:ok, binary()} | {:error, term()}
   def generate_secretkey(), do: error()
 
-  @spec generate_secretkey() :: {:ok, reference()} | {:error, term()}
+  @spec list_peers(reference()) :: {:ok, [binary()]} | {:error, term()}
   def list_peers(_node), do: error()
 
   @spec disconnect_node(reference()) :: {:ok} | {:error, term()}
@@ -83,6 +83,87 @@ defmodule IrohEx.Native do
   @spec shutdown(reference()) :: :ok | {:error, term()}
   def shutdown(_node), do: error()
 
+  # ============================================================================
+  # BLOB FUNCTIONS
+  # ============================================================================
+
+  @doc """
+  Add binary data as a blob, returns the hash as hex string.
+  """
+  @spec blob_add(reference(), binary()) :: {:ok, binary()} | {:error, term()}
+  def blob_add(_node, _data), do: error()
+
+  @doc """
+  Get a blob by hash, returns the binary data.
+  """
+  @spec blob_get(reference(), binary()) :: {:ok, binary()} | {:error, term()}
+  def blob_get(_node, _hash), do: error()
+
+  @doc """
+  List all blob hashes in the store.
+  """
+  @spec blob_list(reference()) :: {:ok, [binary()]} | {:error, term()}
+  def blob_list(_node), do: error()
+
+  # ============================================================================
+  # DOCS FUNCTIONS
+  # ============================================================================
+
+  @doc """
+  Create a new author for documents, returns author_id.
+  """
+  @spec docs_create_author(reference()) :: {:ok, binary()} | {:error, term()}
+  def docs_create_author(_node), do: error()
+
+  @doc """
+  Create a new document, returns namespace_id.
+  """
+  @spec docs_create(reference()) :: {:ok, binary()} | {:error, term()}
+  def docs_create(_node), do: error()
+
+  @doc """
+  Set an entry in a document.
+  """
+  @spec docs_set_entry(reference(), binary(), binary(), binary(), binary()) :: {:ok, binary()} | {:error, term()}
+  def docs_set_entry(_node, _namespace_id, _author_id, _key, _value), do: error()
+
+  @doc """
+  Get an entry from a document - returns content hash.
+  """
+  @spec docs_get_entry(reference(), binary(), binary(), binary()) :: {:ok, binary()} | {:error, term()}
+  def docs_get_entry(_node, _namespace_id, _author_id, _key), do: error()
+
+  @doc """
+  Get an entry value directly from a document.
+  """
+  @spec docs_get_entry_value(reference(), binary(), binary(), binary()) :: {:ok, binary()} | {:error, term()}
+  def docs_get_entry_value(_node, _namespace_id, _author_id, _key), do: error()
+
+  @doc """
+  List all documents.
+  """
+  @spec docs_list(reference()) :: {:ok, [binary()]} | {:error, term()}
+  def docs_list(_node), do: error()
+
+  # ============================================================================
+  # DHT AUTO-DISCOVERY FUNCTIONS
+  # ============================================================================
+
+  @doc """
+  Subscribe to a gossip topic with DHT-based auto-discovery.
+  This allows nodes to find each other without exchanging tickets.
+
+  ## Parameters
+    - `node` - The node reference
+    - `topic_name` - The topic name to subscribe to
+    - `secret_seed` - Optional secret seed for key derivation (nil for random)
+
+  ## Returns
+    - `{:ok, node_ref}` on success
+    - `{:error, term()}` on failure
+  """
+  @spec subscribe_with_auto_discovery(reference(), binary(), binary() | nil) :: {:ok, reference()} | {:error, term()}
+  def subscribe_with_auto_discovery(_node, _topic_name, _secret_seed), do: error()
 
   ## Handle NIF errors when Rust module isn't loaded
   defp error, do: :erlang.nif_error(:nif_not_loaded)

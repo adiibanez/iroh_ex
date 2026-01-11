@@ -33,6 +33,145 @@ defmodule IrohExTest do
     assert is_binary(node_id)
   end
 
+  # ============================================================================
+  # BLOB TESTS
+  # ============================================================================
+
+  test "test blob add and get" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Add a blob
+    test_data = "Hello, iroh blobs!"
+    hash = Native.blob_add(node_ref, test_data)
+
+    IO.inspect(hash, label: "Blob hash")
+    assert is_binary(hash)
+    assert String.length(hash) > 0
+
+    # Get the blob back
+    retrieved_data = Native.blob_get(node_ref, hash)
+
+    assert retrieved_data == test_data
+    IO.puts("✅ Blob add/get test passed")
+  end
+
+  test "test blob list" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Add multiple blobs
+    _hash1 = Native.blob_add(node_ref, "Blob 1 content")
+    _hash2 = Native.blob_add(node_ref, "Blob 2 content")
+    _hash3 = Native.blob_add(node_ref, "Blob 3 content")
+
+    # List all blobs
+    hashes = Native.blob_list(node_ref)
+
+    IO.inspect(hashes, label: "Blob hashes")
+    assert is_list(hashes)
+    assert length(hashes) >= 3
+    IO.puts("✅ Blob list test passed")
+  end
+
+  test "test blob with binary data" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Add binary data (not just text)
+    binary_data = <<0, 1, 2, 3, 255, 254, 253, 252>>
+    hash = Native.blob_add(node_ref, binary_data)
+
+    # Get the blob back
+    retrieved_data = Native.blob_get(node_ref, hash)
+
+    assert retrieved_data == binary_data
+    IO.puts("✅ Blob binary data test passed")
+  end
+
+  # ============================================================================
+  # DOCS TESTS
+  # ============================================================================
+
+  test "test docs create author and document" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create an author
+    author_id = Native.docs_create_author(node_ref)
+
+    IO.inspect(author_id, label: "Author ID")
+    assert is_binary(author_id)
+    assert String.length(author_id) > 0
+
+    # Create a document
+    namespace_id = Native.docs_create(node_ref)
+
+    IO.inspect(namespace_id, label: "Namespace ID")
+    assert is_binary(namespace_id)
+    assert String.length(namespace_id) > 0
+
+    IO.puts("✅ Docs create author/document test passed")
+  end
+
+  test "test docs set and get entry" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create author and document
+    author_id = Native.docs_create_author(node_ref)
+    namespace_id = Native.docs_create(node_ref)
+
+    # Set an entry
+    key = "my-key"
+    value = "my-value-data"
+    content_hash = Native.docs_set_entry(node_ref, namespace_id, author_id, key, value)
+
+    IO.inspect(content_hash, label: "Content hash")
+    assert is_binary(content_hash)
+
+    # Get the entry hash
+    retrieved_hash = Native.docs_get_entry(node_ref, namespace_id, author_id, key)
+    assert is_binary(retrieved_hash)
+
+    # Get the entry value directly
+    retrieved_value = Native.docs_get_entry_value(node_ref, namespace_id, author_id, key)
+    assert retrieved_value == value
+
+    IO.puts("✅ Docs set/get entry test passed")
+  end
+
+  test "test docs list" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create multiple documents
+    _ns1 = Native.docs_create(node_ref)
+    _ns2 = Native.docs_create(node_ref)
+
+    # List all documents
+    namespaces = Native.docs_list(node_ref)
+
+    IO.inspect(namespaces, label: "Document namespaces")
+    assert is_list(namespaces)
+    assert length(namespaces) >= 2
+
+    IO.puts("✅ Docs list test passed")
+  end
+
+  test "test docs with binary value" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create author and document
+    author_id = Native.docs_create_author(node_ref)
+    namespace_id = Native.docs_create(node_ref)
+
+    # Set an entry with binary data
+    key = "binary-key"
+    binary_value = <<1, 2, 3, 4, 5, 100, 200, 255>>
+    _content_hash = Native.docs_set_entry(node_ref, namespace_id, author_id, key, binary_value)
+
+    # Get the entry value
+    retrieved_value = Native.docs_get_entry_value(node_ref, namespace_id, author_id, key)
+    assert retrieved_value == binary_value
+
+    IO.puts("✅ Docs binary value test passed")
+  end
+
   test "test iroh node messages" do
     node_ref = Native.create_node(self(), default_node_config())
     ticket = Native.create_ticket(node_ref)
@@ -277,8 +416,8 @@ defmodule GossipParser do
             %{node | messages: [msg | node.messages || []], msg_count: (node.msg_count || 0) + 1}
         end)
 
-      _other, acc ->
-        IO.puts("Other event #{inspect(_other)}")
+      other, acc ->
+        IO.puts("Other event #{inspect(other)}")
         acc
     end)
   end

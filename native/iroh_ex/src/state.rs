@@ -15,10 +15,19 @@
 use iroh::{
     endpoint::Connection,
     protocol::{ProtocolHandler, Router},
-    Endpoint, NodeAddr, NodeId, PublicKey, SecretKey,
+    Endpoint, PublicKey, SecretKey,
 };
+
+// NodeId is now just PublicKey in iroh 0.95+
+#[allow(dead_code)]
+type NodeId = PublicKey;
+
 use iroh_gossip::api::{GossipReceiver, GossipSender};
 use iroh_gossip::net::Gossip;
+
+// Blobs and Docs imports
+use iroh_blobs::store::mem::MemStore as BlobMemStore;
+use iroh_docs::protocol::Docs;
 use rustler::{Atom, Encoder, Env, LocalPid, Monitor, OwnedEnv, Term};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -74,8 +83,9 @@ pub struct NodeState {
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
     pub event_handler_task: Option<JoinHandle<()>>,
     pub discovery_event_handler_task: Option<JoinHandle<()>>,
-    // pub gossip_actor: Option<ActorHandle<GossipActorMessage>>,
-    // pub erlang_actor: Option<ActorHandle<ErlangMessageEvent>>,
+    // Blobs and Docs
+    pub blobs_store: Option<BlobMemStore>,
+    pub docs: Option<Docs>,
 }
 
 impl NodeState {
@@ -88,6 +98,8 @@ impl NodeState {
         receiver: GossipReceiver,
         mpsc_event_sender: Sender<ErlangMessageEvent>,
         mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
+        blobs_store: Option<BlobMemStore>,
+        docs: Option<Docs>,
     ) -> Self {
         NodeState {
             pid,
@@ -102,8 +114,8 @@ impl NodeState {
             erlang_event_handler_task: None,
             event_handler_task: None,
             discovery_event_handler_task: None,
-            // gossip_actor: None,
-            // erlang_actor: None,
+            blobs_store,
+            docs,
         }
     }
 }

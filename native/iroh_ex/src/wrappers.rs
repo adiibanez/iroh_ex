@@ -29,8 +29,8 @@ struct EndpointWrapper {
 impl Drop for EndpointWrapper {
     fn drop(&mut self) {
         tracing::debug!(
-            "🚀 EndpointWrapper: Endpoint {:?}  at address {:p} is being dropped!",
-            self.endpoint.node_id().fmt_short(),
+            "🚀 EndpointWrapper: Endpoint {}  at address {:p} is being dropped!",
+            self.endpoint.id().fmt_short(),
             ptr::addr_of!(self)
         );
     }
