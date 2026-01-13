@@ -1,0 +1,62 @@
+# livebook clustering test2
+
+## Section
+
+```elixir
+node()
+
+# :net_adm.ping("172.31.0.5")
+
+#case System.cmd("ping", ["-c", "1", "172.31.0.5"]) do
+#  {out, 0} -> IO.puts("✅ Host up:\n#{out}")
+#  {err, _} -> IO.puts("❌ Ping failed:\n#{err}")
+#end
+
+nodes = ["172.31.0.4", "172.31.0.5", "172.31.0.6", "172.31.0.7"]
+
+Enum.each(nodes, fn n -> 
+
+    case :gen_tcp.connect(~c"#{n}", 8080, [:binary, {:active, false}], 1000) do
+      {:ok, socket} ->
+        :gen_tcp.close(socket)
+        IO.puts("✅ Host #{n} reachable via TCP on port 8080")
+    
+      {:error, reason} ->
+        IO.puts("❌ #{n} TCP connect failed: #{inspect(reason)}")
+    end
+
+    Node.connect(:"livebook_server@#{n}")
+
+  end )
+
+Node.list()
+#Node.connect(:"livebook_server@172.31.0.4")
+#Node.connect(:"livebook_server@172.31.0.5")
+#Node.connect(:"livebook_server@172.31.0.6")
+#Node.connect(:"livebook_server@172.31.0.7")
+
+notebook_node = to_string(node())
+
+# Regex.named_captures(~r/(?<lb_hostname>.*)--.*@(?<lb_host>.*)/, notebook_node)
+#%{"lb_host" => lb_host, "lb_hostname" => lb_hostname} = Regex.named_captures(~r/(?<lb_hostname>.*)--.*@(?<lb_host>.*)/, notebook_node)
+%{"lb_host" => lb_host, "lb_hostname" => lb_hostname} = Regex.named_captures(~r/(?<lb_hostname>.*)@(?<lb_host>.*)/, notebook_node)
+
+IO.puts("lb_host: #{lb_host}")
+
+livebook_node =
+  "#{lb_hostname}@#{lb_host}"
+  |> String.to_atom()
+
+cluster_sessions = :erpc.call(livebook_node, Livebook.Sessions, :list_sessions, [])
+
+other_notebook_node =
+  cluster_sessions
+  |> hd()
+  |> then(fn %{pid: pid} -> :sys.get_state(pid) end)
+  |> then(fn %{data: %{runtime: %{node: notebook_node}}} -> notebook_node end)
+
+IO.puts("notebook_node: #{notebook_node}")
+
+Node.list()
+
+```

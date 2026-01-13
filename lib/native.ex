@@ -165,6 +165,190 @@ defmodule IrohEx.Native do
   @spec subscribe_with_auto_discovery(reference(), binary(), binary() | nil) :: {:ok, reference()} | {:error, term()}
   def subscribe_with_auto_discovery(_node, _topic_name, _secret_seed), do: error()
 
+  # ============================================================================
+  # AUTOMERGE CRDT FUNCTIONS
+  # ============================================================================
+
+  # Document Management
+
+  @doc """
+  Create a new automerge document, returns doc_id.
+  """
+  @spec automerge_create_doc(reference()) :: binary()
+  def automerge_create_doc(_node), do: error()
+
+  @doc """
+  Fork an existing document (create a copy with same history).
+  """
+  @spec automerge_fork_doc(reference(), binary()) :: binary()
+  def automerge_fork_doc(_node, _doc_id), do: error()
+
+  @doc """
+  Load a document from saved binary data.
+  """
+  @spec automerge_load_doc(reference(), binary()) :: binary()
+  def automerge_load_doc(_node, _data), do: error()
+
+  @doc """
+  Save document to binary format.
+  """
+  @spec automerge_save_doc(reference(), binary()) :: binary()
+  def automerge_save_doc(_node, _doc_id), do: error()
+
+  @doc """
+  Delete a document from memory.
+  """
+  @spec automerge_delete_doc(reference(), binary()) :: boolean()
+  def automerge_delete_doc(_node, _doc_id), do: error()
+
+  @doc """
+  List all document IDs.
+  """
+  @spec automerge_list_docs(reference()) :: [binary()]
+  def automerge_list_docs(_node), do: error()
+
+  # Map Operations
+
+  @doc """
+  Put a value in a map at the given path.
+  Path is a list of keys like ["users", "alice", "name"].
+  """
+  @spec automerge_map_put(reference(), binary(), [binary()], binary(), term()) :: :ok
+  def automerge_map_put(_node, _doc_id, _path, _key, _value), do: error()
+
+  @doc """
+  Put an object (map, list, or text) at path, returns the object ID.
+  obj_type must be "map", "list", or "text".
+  """
+  @spec automerge_map_put_object(reference(), binary(), [binary()], binary(), binary()) :: binary()
+  def automerge_map_put_object(_node, _doc_id, _path, _key, _obj_type), do: error()
+
+  @doc """
+  Get a value from a map at the given path.
+  Returns :not_found if key doesn't exist.
+  """
+  @spec automerge_map_get(reference(), binary(), [binary()], binary()) :: term()
+  def automerge_map_get(_node, _doc_id, _path, _key), do: error()
+
+  @doc """
+  Delete a key from a map.
+  """
+  @spec automerge_map_delete(reference(), binary(), [binary()], binary()) :: :ok
+  def automerge_map_delete(_node, _doc_id, _path, _key), do: error()
+
+  @doc """
+  Get all keys from a map.
+  """
+  @spec automerge_map_keys(reference(), binary(), [binary()]) :: [binary()]
+  def automerge_map_keys(_node, _doc_id, _path), do: error()
+
+  # List Operations
+
+  @doc """
+  Insert a value into a list at index.
+  """
+  @spec automerge_list_insert(reference(), binary(), [binary()], non_neg_integer(), term()) :: :ok
+  def automerge_list_insert(_node, _doc_id, _path, _index, _value), do: error()
+
+  @doc """
+  Push a value to the end of a list.
+  """
+  @spec automerge_list_push(reference(), binary(), [binary()], term()) :: :ok
+  def automerge_list_push(_node, _doc_id, _path, _value), do: error()
+
+  @doc """
+  Get a value from a list at index.
+  Returns :not_found if index doesn't exist.
+  """
+  @spec automerge_list_get(reference(), binary(), [binary()], non_neg_integer()) :: term()
+  def automerge_list_get(_node, _doc_id, _path, _index), do: error()
+
+  @doc """
+  Delete a value from a list at index.
+  """
+  @spec automerge_list_delete(reference(), binary(), [binary()], non_neg_integer()) :: :ok
+  def automerge_list_delete(_node, _doc_id, _path, _index), do: error()
+
+  @doc """
+  Get list length.
+  """
+  @spec automerge_list_length(reference(), binary(), [binary()]) :: non_neg_integer()
+  def automerge_list_length(_node, _doc_id, _path), do: error()
+
+  # Text Operations
+
+  @doc """
+  Create a text object at path with optional initial text.
+  Returns the text object ID.
+  """
+  @spec automerge_text_create(reference(), binary(), [binary()], binary(), binary()) :: binary()
+  def automerge_text_create(_node, _doc_id, _path, _key, _initial_text), do: error()
+
+  @doc """
+  Insert text at position.
+  """
+  @spec automerge_text_insert(reference(), binary(), [binary()], non_neg_integer(), binary()) :: :ok
+  def automerge_text_insert(_node, _doc_id, _path, _position, _text), do: error()
+
+  @doc """
+  Delete text at position.
+  """
+  @spec automerge_text_delete(reference(), binary(), [binary()], non_neg_integer(), non_neg_integer()) :: :ok
+  def automerge_text_delete(_node, _doc_id, _path, _position, _length), do: error()
+
+  @doc """
+  Get full text content.
+  """
+  @spec automerge_text_get(reference(), binary(), [binary()]) :: binary()
+  def automerge_text_get(_node, _doc_id, _path), do: error()
+
+  # Counter Operations
+
+  @doc """
+  Create or increment a counter. Returns the new value.
+  """
+  @spec automerge_counter_increment(reference(), binary(), [binary()], binary(), integer()) :: integer()
+  def automerge_counter_increment(_node, _doc_id, _path, _key, _delta), do: error()
+
+  @doc """
+  Get counter value.
+  """
+  @spec automerge_counter_get(reference(), binary(), [binary()], binary()) :: integer()
+  def automerge_counter_get(_node, _doc_id, _path, _key), do: error()
+
+  # Merge and Sync Operations
+
+  @doc """
+  Merge another document (as binary) into this one.
+  """
+  @spec automerge_merge(reference(), binary(), binary()) :: :ok
+  def automerge_merge(_node, _doc_id, _other_doc_bytes), do: error()
+
+  @doc """
+  Generate a sync message to send to a peer.
+  Returns :not_found if no sync is needed.
+  """
+  @spec automerge_generate_sync_message(reference(), binary(), binary()) :: binary() | :not_found
+  def automerge_generate_sync_message(_node, _doc_id, _peer_id), do: error()
+
+  @doc """
+  Receive and apply a sync message from a peer.
+  """
+  @spec automerge_receive_sync_message(reference(), binary(), binary(), binary()) :: :ok
+  def automerge_receive_sync_message(_node, _doc_id, _peer_id, _message), do: error()
+
+  @doc """
+  Sync document via gossip (broadcast full document to all peers).
+  """
+  @spec automerge_sync_via_gossip(reference(), binary()) :: :ok
+  def automerge_sync_via_gossip(_node, _doc_id), do: error()
+
+  @doc """
+  Get document as JSON string for debugging/inspection.
+  """
+  @spec automerge_to_json(reference(), binary()) :: binary()
+  def automerge_to_json(_node, _doc_id), do: error()
+
   ## Handle NIF errors when Rust module isn't loaded
   defp error, do: :erlang.nif_error(:nif_not_loaded)
 end

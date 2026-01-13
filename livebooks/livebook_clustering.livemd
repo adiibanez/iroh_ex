@@ -1,0 +1,77 @@
+# Untitled notebook
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.15.3"},
+  {:iroh_ex, "~> 0.0.9"},
+  # {:libcluster, "~> 3.5"},
+  # {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  # {:iroh_ex, path: "/home/adrianibanez/projects/2025_sensocto/checkouts/iroh_ex"},
+  {:rustler, "~> 0.36.1", override: true},
+  {:rustler_precompiled, "~> 0.7"}
+])
+```
+
+## Section
+
+```elixir
+# Supervisor names
+cluster_sup = MyApp.ClusterSupervisor
+root_sup = MyApp.Supervisor
+
+# Cleanup if already running
+for sup <- [cluster_sup, root_sup] do
+  case Process.whereis(sup) do
+    nil -> :ok
+    pid -> Supervisor.stop(pid)
+  end
+end
+
+# Define topologies
+topologies = [
+  example: [
+    strategy: Cluster.Strategy.Epmd,
+    config: [
+      hosts:
+        Enum.filter(
+          [:"livebook--im4u6bji@runtime1.livebook.local", :"livebook--o2irvfba@runtime2.livebook.local"],
+          &(&1 != Node.self())
+        )
+    ]
+  ]
+]
+
+IO.inspect(topologies, label: "Topologies")
+
+# Define child spec using classic style
+children = [
+  {Cluster.Supervisor, [topologies, [name: cluster_sup]]}
+]
+
+# Start the root supervisor
+{:ok, _pid} = Supervisor.start_link(children, strategy: :one_for_one, name: root_sup)
+
+hosts =
+  topologies
+  |> Keyword.fetch!(:example)
+  |> Keyword.fetch!(:config)
+  |> Keyword.fetch!(:hosts)
+
+Enum.each(hosts, fn n -> 
+  IO.inspect(:net_adm.ping(n), label: "Ping #{inspect(n)}")
+  IO.inspect(Node.connect(n), label: "Node connect #{inspect(n)}")
+  rpc_result = :rpc.call(n, Kernel, :node, [])
+  IO.inspect(rpc_result, label: "Node rpc")
+end)
+
+IO.inspect(Node.list(), label: "Nodes")
+
+IO.inspect(node(), label: "Myself")
+
+Node.list()
+#Node.list(:this)
+```
+
+```elixir
+
+```

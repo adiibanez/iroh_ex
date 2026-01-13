@@ -172,6 +172,332 @@ defmodule IrohExTest do
     IO.puts("✅ Docs binary value test passed")
   end
 
+  # ============================================================================
+  # AUTOMERGE TESTS
+  # ============================================================================
+
+  @tag :automerge
+  test "automerge document lifecycle" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create a document
+    doc_id = Native.automerge_create_doc(node_ref)
+    assert is_binary(doc_id)
+    assert String.length(doc_id) > 0
+
+    # Add some data
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "name", "Test Document")
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "version", 1)
+
+    # Save the document
+    saved_data = Native.automerge_save_doc(node_ref, doc_id)
+    assert is_binary(saved_data)
+    assert byte_size(saved_data) > 0
+
+    # Load into a new document
+    new_doc_id = Native.automerge_load_doc(node_ref, saved_data)
+    assert is_binary(new_doc_id)
+    assert new_doc_id != doc_id
+
+    # Verify data was preserved
+    assert Native.automerge_map_get(node_ref, new_doc_id, [], "name") == "Test Document"
+    assert Native.automerge_map_get(node_ref, new_doc_id, [], "version") == 1
+
+    IO.puts("✅ Automerge document lifecycle test passed")
+  end
+
+  @tag :automerge
+  test "automerge fork document" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create and populate original
+    doc_id = Native.automerge_create_doc(node_ref)
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "original", true)
+
+    # Fork it
+    forked_id = Native.automerge_fork_doc(node_ref, doc_id)
+    assert forked_id != doc_id
+
+    # Both should have the original data
+    assert Native.automerge_map_get(node_ref, doc_id, [], "original") == true
+    assert Native.automerge_map_get(node_ref, forked_id, [], "original") == true
+
+    # Modify forked only
+    :ok = Native.automerge_map_put(node_ref, forked_id, [], "forked", true)
+    assert Native.automerge_map_get(node_ref, forked_id, [], "forked") == true
+    assert Native.automerge_map_get(node_ref, doc_id, [], "forked") == :not_found
+
+    IO.puts("✅ Automerge fork test passed")
+  end
+
+  @tag :automerge
+  test "automerge list and delete documents" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create multiple documents
+    doc1 = Native.automerge_create_doc(node_ref)
+    doc2 = Native.automerge_create_doc(node_ref)
+    doc3 = Native.automerge_create_doc(node_ref)
+
+    # List should contain all
+    docs = Native.automerge_list_docs(node_ref)
+    assert is_list(docs)
+    assert length(docs) >= 3
+    assert doc1 in docs
+    assert doc2 in docs
+    assert doc3 in docs
+
+    # Delete one
+    assert Native.automerge_delete_doc(node_ref, doc2) == true
+
+    # List should not contain deleted
+    docs_after = Native.automerge_list_docs(node_ref)
+    assert doc2 not in docs_after
+
+    IO.puts("✅ Automerge list/delete test passed")
+  end
+
+  @tag :automerge
+  test "automerge map scalar values" do
+    node_ref = Native.create_node(self(), default_node_config())
+    doc_id = Native.automerge_create_doc(node_ref)
+
+    # String
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "string_key", "hello")
+    assert Native.automerge_map_get(node_ref, doc_id, [], "string_key") == "hello"
+
+    # Integer
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "int_key", 42)
+    assert Native.automerge_map_get(node_ref, doc_id, [], "int_key") == 42
+
+    # Float
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "float_key", 3.14)
+    assert Native.automerge_map_get(node_ref, doc_id, [], "float_key") == 3.14
+
+    # Boolean
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "bool_key", true)
+    assert Native.automerge_map_get(node_ref, doc_id, [], "bool_key") == true
+
+    IO.puts("✅ Automerge map scalar values test passed")
+  end
+
+  @tag :automerge
+  test "automerge nested maps" do
+    node_ref = Native.create_node(self(), default_node_config())
+    doc_id = Native.automerge_create_doc(node_ref)
+
+    # Create nested structure: {users: {alice: {name: "Alice", age: 30}}}
+    _obj_id = Native.automerge_map_put_object(node_ref, doc_id, [], "users", "map")
+    _obj_id = Native.automerge_map_put_object(node_ref, doc_id, ["users"], "alice", "map")
+    :ok = Native.automerge_map_put(node_ref, doc_id, ["users", "alice"], "name", "Alice")
+    :ok = Native.automerge_map_put(node_ref, doc_id, ["users", "alice"], "age", 30)
+
+    # Read back
+    assert Native.automerge_map_get(node_ref, doc_id, ["users", "alice"], "name") == "Alice"
+    assert Native.automerge_map_get(node_ref, doc_id, ["users", "alice"], "age") == 30
+
+    # Get keys
+    keys = Native.automerge_map_keys(node_ref, doc_id, ["users", "alice"])
+    assert "name" in keys
+    assert "age" in keys
+
+    IO.puts("✅ Automerge nested maps test passed")
+  end
+
+  @tag :automerge
+  test "automerge map delete key" do
+    node_ref = Native.create_node(self(), default_node_config())
+    doc_id = Native.automerge_create_doc(node_ref)
+
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "to_delete", "value")
+    assert Native.automerge_map_get(node_ref, doc_id, [], "to_delete") == "value"
+
+    :ok = Native.automerge_map_delete(node_ref, doc_id, [], "to_delete")
+    assert Native.automerge_map_get(node_ref, doc_id, [], "to_delete") == :not_found
+
+    IO.puts("✅ Automerge map delete test passed")
+  end
+
+  @tag :automerge
+  test "automerge list operations" do
+    node_ref = Native.create_node(self(), default_node_config())
+    doc_id = Native.automerge_create_doc(node_ref)
+
+    # Create a list
+    _obj_id = Native.automerge_map_put_object(node_ref, doc_id, [], "items", "list")
+
+    # Push items
+    :ok = Native.automerge_list_push(node_ref, doc_id, ["items"], "first")
+    :ok = Native.automerge_list_push(node_ref, doc_id, ["items"], "second")
+    :ok = Native.automerge_list_push(node_ref, doc_id, ["items"], "third")
+
+    # Check length
+    assert Native.automerge_list_length(node_ref, doc_id, ["items"]) == 3
+
+    # Get by index
+    assert Native.automerge_list_get(node_ref, doc_id, ["items"], 0) == "first"
+    assert Native.automerge_list_get(node_ref, doc_id, ["items"], 1) == "second"
+    assert Native.automerge_list_get(node_ref, doc_id, ["items"], 2) == "third"
+
+    # Insert in middle
+    :ok = Native.automerge_list_insert(node_ref, doc_id, ["items"], 1, "inserted")
+    assert Native.automerge_list_get(node_ref, doc_id, ["items"], 1) == "inserted"
+    assert Native.automerge_list_length(node_ref, doc_id, ["items"]) == 4
+
+    # Delete
+    :ok = Native.automerge_list_delete(node_ref, doc_id, ["items"], 1)
+    assert Native.automerge_list_length(node_ref, doc_id, ["items"]) == 3
+
+    IO.puts("✅ Automerge list operations test passed")
+  end
+
+  @tag :automerge
+  test "automerge text operations" do
+    node_ref = Native.create_node(self(), default_node_config())
+    doc_id = Native.automerge_create_doc(node_ref)
+
+    # Create text with initial content
+    _text_id = Native.automerge_text_create(node_ref, doc_id, [], "content", "Hello World")
+    assert Native.automerge_text_get(node_ref, doc_id, ["content"]) == "Hello World"
+
+    # Insert text
+    :ok = Native.automerge_text_insert(node_ref, doc_id, ["content"], 5, " Beautiful")
+    assert Native.automerge_text_get(node_ref, doc_id, ["content"]) == "Hello Beautiful World"
+
+    # Delete text
+    :ok = Native.automerge_text_delete(node_ref, doc_id, ["content"], 5, 10)
+    assert Native.automerge_text_get(node_ref, doc_id, ["content"]) == "Hello World"
+
+    IO.puts("✅ Automerge text operations test passed")
+  end
+
+  @tag :automerge
+  test "automerge counter operations" do
+    node_ref = Native.create_node(self(), default_node_config())
+    doc_id = Native.automerge_create_doc(node_ref)
+
+    # Create counter with initial value
+    result = Native.automerge_counter_increment(node_ref, doc_id, [], "visits", 1)
+    assert result == 1
+
+    # Increment
+    result = Native.automerge_counter_increment(node_ref, doc_id, [], "visits", 5)
+    assert result == 6
+
+    # Get value
+    assert Native.automerge_counter_get(node_ref, doc_id, [], "visits") == 6
+
+    # Decrement
+    result = Native.automerge_counter_increment(node_ref, doc_id, [], "visits", -2)
+    assert result == 4
+
+    IO.puts("✅ Automerge counter operations test passed")
+  end
+
+  @tag :automerge
+  test "automerge merge two documents" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create two documents from the same origin
+    doc1 = Native.automerge_create_doc(node_ref)
+    :ok = Native.automerge_map_put(node_ref, doc1, [], "shared", "value")
+
+    # Fork to get same history
+    doc2 = Native.automerge_fork_doc(node_ref, doc1)
+
+    # Make different changes
+    :ok = Native.automerge_map_put(node_ref, doc1, [], "from_doc1", "doc1_value")
+    :ok = Native.automerge_map_put(node_ref, doc2, [], "from_doc2", "doc2_value")
+
+    # Save doc2 and merge into doc1
+    doc2_bytes = Native.automerge_save_doc(node_ref, doc2)
+    :ok = Native.automerge_merge(node_ref, doc1, doc2_bytes)
+
+    # doc1 should now have both changes
+    assert Native.automerge_map_get(node_ref, doc1, [], "shared") == "value"
+    assert Native.automerge_map_get(node_ref, doc1, [], "from_doc1") == "doc1_value"
+    assert Native.automerge_map_get(node_ref, doc1, [], "from_doc2") == "doc2_value"
+
+    IO.puts("✅ Automerge merge test passed")
+  end
+
+  @tag :automerge
+  test "automerge concurrent edits merge correctly" do
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create and fork
+    doc1 = Native.automerge_create_doc(node_ref)
+    _obj_id = Native.automerge_map_put_object(node_ref, doc1, [], "data", "map")
+    doc2 = Native.automerge_fork_doc(node_ref, doc1)
+
+    # Concurrent edits to different keys
+    :ok = Native.automerge_map_put(node_ref, doc1, ["data"], "key_a", "value_a")
+    :ok = Native.automerge_map_put(node_ref, doc2, ["data"], "key_b", "value_b")
+
+    # Merge both ways
+    doc1_bytes = Native.automerge_save_doc(node_ref, doc1)
+    doc2_bytes = Native.automerge_save_doc(node_ref, doc2)
+
+    :ok = Native.automerge_merge(node_ref, doc1, doc2_bytes)
+    :ok = Native.automerge_merge(node_ref, doc2, doc1_bytes)
+
+    # Both should converge
+    assert Native.automerge_map_get(node_ref, doc1, ["data"], "key_a") == "value_a"
+    assert Native.automerge_map_get(node_ref, doc1, ["data"], "key_b") == "value_b"
+    assert Native.automerge_map_get(node_ref, doc2, ["data"], "key_a") == "value_a"
+    assert Native.automerge_map_get(node_ref, doc2, ["data"], "key_b") == "value_b"
+
+    IO.puts("✅ Automerge concurrent edits test passed")
+  end
+
+  @tag :automerge
+  test "automerge to_json" do
+    node_ref = Native.create_node(self(), default_node_config())
+    doc_id = Native.automerge_create_doc(node_ref)
+
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "name", "Test")
+    :ok = Native.automerge_map_put(node_ref, doc_id, [], "count", 42)
+
+    json = Native.automerge_to_json(node_ref, doc_id)
+    assert is_binary(json)
+    assert String.contains?(json, "name")
+    assert String.contains?(json, "Test")
+
+    IO.puts("✅ Automerge to_json test passed")
+  end
+
+  @tag :automerge
+  test "automerge high-level API" do
+    alias IrohEx.Automerge
+
+    node_ref = Native.create_node(self(), default_node_config())
+
+    # Create document
+    doc_id = Automerge.new(node_ref)
+    assert is_binary(doc_id)
+
+    # Put and get
+    :ok = Automerge.put(node_ref, doc_id, [], "name", "Alice")
+    assert Automerge.get(node_ref, doc_id, [], "name") == "Alice"
+
+    # Create nested map
+    {:ok, _} = Automerge.create_map(node_ref, doc_id, [], "profile")
+    :ok = Automerge.put(node_ref, doc_id, ["profile"], "email", "alice@example.com")
+    assert Automerge.get(node_ref, doc_id, ["profile"], "email") == "alice@example.com"
+
+    # Create list
+    {:ok, _} = Automerge.create_list(node_ref, doc_id, [], "tags")
+    :ok = Automerge.list_push(node_ref, doc_id, ["tags"], "important")
+    assert Automerge.list_length(node_ref, doc_id, ["tags"]) == 1
+
+    # Save and load
+    {:ok, bytes} = Automerge.save(node_ref, doc_id)
+    {:ok, loaded_doc} = Automerge.load(node_ref, bytes)
+    assert Automerge.get(node_ref, loaded_doc, [], "name") == "Alice"
+
+    IO.puts("✅ Automerge high-level API test passed")
+  end
+
   test "test iroh node messages" do
     node_ref = Native.create_node(self(), default_node_config())
     ticket = Native.create_ticket(node_ref)

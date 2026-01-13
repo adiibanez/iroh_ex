@@ -1466,6 +1466,705 @@ fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
+// ============================================================================
+// AUTOMERGE CRDT NIF FUNCTIONS
+// ============================================================================
+
+use automerge::{AutoCommit, ObjType, ROOT, sync::SyncDoc, ReadDoc, transaction::Transactable, ActorId};
+
+// Helper to navigate to a path in the document
+fn navigate_to_path(doc: &mut AutoCommit, path: &[String]) -> NifResult<automerge::ObjId> {
+    let mut obj = ROOT;
+    for key in path {
+        match doc.get(&obj, key.as_str()) {
+            Ok(Some((automerge::Value::Object(_), id))) => obj = id,
+            Ok(_) => return Err(rustler::Error::Term(Box::new(format!("Path not found: {}", key)))),
+            Err(e) => return Err(rustler::Error::Term(Box::new(format!("Navigation error: {}", e)))),
+        }
+    }
+    Ok(obj)
+}
+
+fn navigate_to_path_readonly(doc: &AutoCommit, path: &[String]) -> NifResult<automerge::ObjId> {
+    let mut obj = ROOT;
+    for key in path {
+        match doc.get(&obj, key.as_str()) {
+            Ok(Some((automerge::Value::Object(_), id))) => obj = id,
+            Ok(_) => return Err(rustler::Error::Term(Box::new(format!("Path not found: {}", key)))),
+            Err(e) => return Err(rustler::Error::Term(Box::new(format!("Navigation error: {}", e)))),
+        }
+    }
+    Ok(obj)
+}
+
+// Helper to convert automerge value to Erlang term
+fn value_to_term<'a>(env: Env<'a>, value: &automerge::Value) -> NifResult<Term<'a>> {
+    match value {
+        automerge::Value::Scalar(s) => match s.as_ref() {
+            automerge::ScalarValue::Str(s) => Ok(s.to_string().encode(env)),
+            automerge::ScalarValue::Int(i) => Ok(i.encode(env)),
+            automerge::ScalarValue::Uint(u) => Ok((*u as i64).encode(env)),
+            automerge::ScalarValue::F64(f) => Ok(f.encode(env)),
+            automerge::ScalarValue::Boolean(b) => Ok(b.encode(env)),
+            automerge::ScalarValue::Bytes(b) => Ok(b.as_slice().encode(env)),
+            automerge::ScalarValue::Counter(c) => Ok((i64::from(c.clone())).encode(env)),
+            automerge::ScalarValue::Timestamp(t) => Ok(t.encode(env)),
+            automerge::ScalarValue::Null => Ok(atoms::not_found().encode(env)),
+            automerge::ScalarValue::Unknown { .. } => Ok(atoms::not_found().encode(env)),
+        },
+        automerge::Value::Object(obj_type) => {
+            Ok(format!("object:{:?}", obj_type).encode(env))
+        }
+    }
+}
+
+// ============================================================================
+// Document Management
+// ============================================================================
+
+/// Create a new automerge document, returns doc_id
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_create_doc(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let mut doc = AutoCommit::new();
+    if let Some(ref actor) = state.automerge_actor {
+        doc.set_actor(actor.clone());
+    }
+
+    let doc_id = uuid::Uuid::new_v4().to_string();
+    state.automerge_docs.insert(doc_id.clone(), doc);
+    state.automerge_sync_states.insert(doc_id.clone(), std::collections::HashMap::new());
+
+    Ok(doc_id)
+}
+
+/// Fork an existing document (create a copy with same history)
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_fork_doc(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let original = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let mut forked = original.fork();
+
+    // Give the forked document a unique actor ID to avoid duplicate seq errors when merging
+    let new_actor = ActorId::random();
+    forked.set_actor(new_actor);
+
+    let new_doc_id = uuid::Uuid::new_v4().to_string();
+    state.automerge_docs.insert(new_doc_id.clone(), forked);
+    state.automerge_sync_states.insert(new_doc_id.clone(), std::collections::HashMap::new());
+
+    Ok(new_doc_id)
+}
+
+/// Load a document from saved bytes
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_load_doc(
+    node_ref: ResourceArc<NodeRef>,
+    data: Binary,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = AutoCommit::load(data.as_slice())
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Load error: {}", e))))?;
+
+    let doc_id = uuid::Uuid::new_v4().to_string();
+    state.automerge_docs.insert(doc_id.clone(), doc);
+    state.automerge_sync_states.insert(doc_id.clone(), std::collections::HashMap::new());
+
+    Ok(doc_id)
+}
+
+/// Save document to binary format
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_save_doc<'a>(
+    env: Env<'a>,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<Binary<'a>> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let bytes = doc.save();
+    let mut binary = OwnedBinary::new(bytes.len()).unwrap();
+    binary.as_mut_slice().copy_from_slice(&bytes);
+    Ok(binary.release(env))
+}
+
+/// Delete a document from memory
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_delete_doc(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<bool> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let removed = state.automerge_docs.remove(&doc_id).is_some();
+    state.automerge_sync_states.remove(&doc_id);
+
+    Ok(removed)
+}
+
+/// List all document IDs
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_docs(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
+    let state = node_ref.0.lock().unwrap();
+    Ok(state.automerge_docs.keys().cloned().collect())
+}
+
+// ============================================================================
+// Map Operations
+// ============================================================================
+
+/// Put a value in a map at the given path
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_put(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    value: Term,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+
+    // Try to decode the value in different types
+    if let Ok(s) = value.decode::<String>() {
+        doc.put(&obj, &key, s).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(i) = value.decode::<i64>() {
+        doc.put(&obj, &key, i).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(f) = value.decode::<f64>() {
+        doc.put(&obj, &key, f).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(b) = value.decode::<bool>() {
+        doc.put(&obj, &key, b).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(bin) = value.decode::<Binary>() {
+        doc.put(&obj, &key, bin.as_slice().to_vec()).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else {
+        return Err(rustler::Error::Term(Box::new("Unsupported value type")));
+    }
+
+    Ok(atoms::ok())
+}
+
+/// Put an object (map or list) at path, returns the object ID
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_put_object(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    obj_type: String,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let parent_obj = navigate_to_path(doc, &path)?;
+    let obj_type = match obj_type.as_str() {
+        "map" => ObjType::Map,
+        "list" => ObjType::List,
+        "text" => ObjType::Text,
+        _ => return Err(rustler::Error::Term(Box::new("Invalid object type: use map, list, or text"))),
+    };
+
+    let obj_id = doc.put_object(&parent_obj, &key, obj_type)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Put object error: {}", e))))?;
+
+    Ok(obj_id.to_string())
+}
+
+/// Get a value from a map at the given path
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_get(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+) -> NifResult<Term> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+
+    match doc.get(&obj, &key) {
+        Ok(Some((value, _))) => value_to_term(env, &value),
+        Ok(None) => Ok(atoms::not_found().encode(env)),
+        Err(e) => Err(rustler::Error::Term(Box::new(format!("Get error: {}", e)))),
+    }
+}
+
+/// Delete a key from a map
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_delete(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.delete(&obj, &key)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Delete error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Get all keys from a map
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_keys(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+) -> NifResult<Vec<String>> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+    let keys: Vec<String> = doc.keys(&obj).collect();
+
+    Ok(keys)
+}
+
+// ============================================================================
+// List Operations
+// ============================================================================
+
+/// Insert a value into a list at index
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_insert(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    index: usize,
+    value: Term,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+
+    if let Ok(s) = value.decode::<String>() {
+        doc.insert(&obj, index, s).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(i) = value.decode::<i64>() {
+        doc.insert(&obj, index, i).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(f) = value.decode::<f64>() {
+        doc.insert(&obj, index, f).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(b) = value.decode::<bool>() {
+        doc.insert(&obj, index, b).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else {
+        return Err(rustler::Error::Term(Box::new("Unsupported value type")));
+    }
+
+    Ok(atoms::ok())
+}
+
+/// Push a value to the end of a list
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_push(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    value: Term,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    let len = doc.length(&obj);
+
+    if let Ok(s) = value.decode::<String>() {
+        doc.insert(&obj, len, s).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(i) = value.decode::<i64>() {
+        doc.insert(&obj, len, i).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(f) = value.decode::<f64>() {
+        doc.insert(&obj, len, f).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(b) = value.decode::<bool>() {
+        doc.insert(&obj, len, b).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else {
+        return Err(rustler::Error::Term(Box::new("Unsupported value type")));
+    }
+
+    Ok(atoms::ok())
+}
+
+/// Get a value from a list at index
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_get(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    index: usize,
+) -> NifResult<Term> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+
+    match doc.get(&obj, index) {
+        Ok(Some((value, _))) => value_to_term(env, &value),
+        Ok(None) => Ok(atoms::not_found().encode(env)),
+        Err(e) => Err(rustler::Error::Term(Box::new(format!("Get error: {}", e)))),
+    }
+}
+
+/// Delete a value from a list at index
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_delete(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    index: usize,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.delete(&obj, index)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Delete error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Get list length
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_length(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+) -> NifResult<usize> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+    Ok(doc.length(&obj))
+}
+
+// ============================================================================
+// Text Operations
+// ============================================================================
+
+/// Create a text object at path with initial text
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_create(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    initial_text: String,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let parent_obj = navigate_to_path(doc, &path)?;
+    let text_id = doc.put_object(&parent_obj, &key, ObjType::Text)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Create text error: {}", e))))?;
+
+    if !initial_text.is_empty() {
+        doc.splice_text(&text_id, 0, 0, &initial_text)
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Splice error: {}", e))))?;
+    }
+
+    Ok(text_id.to_string())
+}
+
+/// Insert text at position
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_insert(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    position: usize,
+    text: String,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.splice_text(&obj, position, 0, &text)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Insert error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Delete text at position
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_delete(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    position: usize,
+    length: usize,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.splice_text(&obj, position, length as isize, "")
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Delete error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Get full text content
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_get(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+) -> NifResult<String> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+    let text = doc.text(&obj)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Get text error: {}", e))))?;
+
+    Ok(text)
+}
+
+// ============================================================================
+// Counter Operations
+// ============================================================================
+
+/// Create or increment a counter, returns the new value
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_counter_increment(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    delta: i64,
+) -> NifResult<i64> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+
+    // Check if counter exists
+    if let Ok(Some((value, _))) = doc.get(&obj, &key) {
+        if let automerge::Value::Scalar(s) = value {
+            if let automerge::ScalarValue::Counter(c) = s.as_ref() {
+                let current_val: i64 = c.clone().into();
+                doc.increment(&obj, &key, delta)
+                    .map_err(|e| rustler::Error::Term(Box::new(format!("Increment error: {}", e))))?;
+                return Ok(current_val + delta);
+            }
+        }
+    }
+
+    // Create new counter
+    doc.put(&obj, &key, automerge::ScalarValue::Counter(delta.into()))
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Put counter error: {}", e))))?;
+
+    Ok(delta)
+}
+
+/// Get counter value
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_counter_get(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+) -> NifResult<i64> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+
+    match doc.get(&obj, &key) {
+        Ok(Some((automerge::Value::Scalar(s), _))) => {
+            if let automerge::ScalarValue::Counter(c) = s.as_ref() {
+                Ok(i64::from(c.clone()))
+            } else {
+                Err(rustler::Error::Term(Box::new("Not a counter")))
+            }
+        }
+        Ok(_) => Err(rustler::Error::Term(Box::new("Counter not found"))),
+        Err(e) => Err(rustler::Error::Term(Box::new(format!("Get error: {}", e)))),
+    }
+}
+
+// ============================================================================
+// Merge and Sync Operations
+// ============================================================================
+
+/// Merge another document (as bytes) into this one
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_merge(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    other_doc_bytes: Binary,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let mut other = AutoCommit::load(other_doc_bytes.as_slice())
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Load error: {}", e))))?;
+
+    doc.merge(&mut other)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Merge error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Generate a sync message to send to a peer
+/// Note: For simplicity, this returns the full document save rather than incremental sync.
+/// Use automerge_sync_via_gossip for the primary sync mechanism.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_generate_sync_message<'a>(
+    env: Env<'a>,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    _peer_id: String,
+) -> NifResult<Term<'a>> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    // For simplicity, return the full document save as the "sync message"
+    let bytes = doc.save();
+    let mut binary = OwnedBinary::new(bytes.len()).unwrap();
+    binary.as_mut_slice().copy_from_slice(&bytes);
+    Ok(binary.release(env).encode(env))
+}
+
+/// Receive and apply a sync message from a peer
+/// Note: This expects a full document save, which it merges into the local doc.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_receive_sync_message(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    _peer_id: String,
+    message: Binary,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    // Load and merge the received document
+    let mut other = AutoCommit::load(message.as_slice())
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Load error: {}", e))))?;
+
+    doc.merge(&mut other)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Merge error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Sync document via gossip (broadcast full document to all peers)
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_sync_via_gossip(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<Atom> {
+    let (sender, doc_bytes, node_id) = {
+        let mut state = node_ref.0.lock().unwrap();
+
+        // Get sender and node_id first
+        let sender = state.sender.clone();
+        let node_id = state.endpoint.id();
+
+        // Then get the doc
+        let doc = state.automerge_docs.get_mut(&doc_id)
+            .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+        let doc_bytes = doc.save();
+
+        (sender, doc_bytes, node_id)
+    };
+
+    // Create a special message type for automerge sync
+    #[derive(Serialize)]
+    struct AutomergeSyncMessage {
+        msg_type: String,
+        doc_id: String,
+        from: String,
+        document: Vec<u8>,
+    }
+
+    let message = AutomergeSyncMessage {
+        msg_type: "automerge_sync".to_string(),
+        doc_id,
+        from: node_id.to_string(),
+        document: doc_bytes,
+    };
+
+    let bytes = serde_json::to_vec(&message)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Serialize error: {}", e))))?;
+
+    RUNTIME.block_on(async {
+        sender.broadcast(bytes.into()).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Broadcast error: {}", e))))
+    })?;
+
+    Ok(atoms::ok())
+}
+
+/// Get document as JSON-like map for debugging/inspection
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_to_json(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<String> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let json = serde_json::to_string(&automerge::AutoSerde::from(doc))
+        .map_err(|e| rustler::Error::Term(Box::new(format!("JSON serialization error: {}", e))))?;
+    Ok(json)
+}
+
 // fn setup_console_subscriber_once() {
 //     let _ = Registry::default()
 //         .with(ConsoleLayer::builder().with_default_env().spawn())

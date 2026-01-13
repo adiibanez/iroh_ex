@@ -40,6 +40,10 @@ use tokio::task::JoinHandle;
 use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 
+// Automerge imports
+use automerge::AutoCommit;
+use automerge::ActorId;
+
 // use tracing_subscriber::{Registry, prelude::*};
 // use console_subscriber::ConsoleLayer;
 
@@ -86,6 +90,10 @@ pub struct NodeState {
     // Blobs and Docs
     pub blobs_store: Option<BlobMemStore>,
     pub docs: Option<Docs>,
+    // Automerge CRDT support
+    pub automerge_docs: HashMap<String, AutoCommit>,
+    pub automerge_actor: Option<ActorId>,
+    pub automerge_sync_states: HashMap<String, HashMap<String, automerge::sync::State>>,
 }
 
 impl NodeState {
@@ -101,6 +109,9 @@ impl NodeState {
         blobs_store: Option<BlobMemStore>,
         docs: Option<Docs>,
     ) -> Self {
+        // Generate actor ID from endpoint public key for deterministic identity
+        let actor_id = Some(ActorId::from(endpoint.id().as_bytes()));
+
         NodeState {
             pid,
             monitor_ref: None,
@@ -116,6 +127,10 @@ impl NodeState {
             discovery_event_handler_task: None,
             blobs_store,
             docs,
+            // Automerge fields
+            automerge_docs: HashMap::new(),
+            automerge_actor: actor_id,
+            automerge_sync_states: HashMap::new(),
         }
     }
 }
@@ -223,5 +238,13 @@ pub mod atoms {
         iroh_gossip_message_received,
         iroh_gossip_message_unhandled,
         iroh_gossip_list_topics,
+
+        // Automerge events
+        automerge_doc_created,
+        automerge_doc_changed,
+        automerge_doc_synced,
+        automerge_doc_merged,
+        automerge_sync_message_received,
+        automerge_conflict_detected,
     }
 }
