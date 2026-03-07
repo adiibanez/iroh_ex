@@ -159,6 +159,7 @@ struct NodeConfig {
     active_view_capacity: u32,
     passive_view_capacity: u32,
     relay_urls: Vec<String>,
+    secret_key: String,
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -205,11 +206,21 @@ pub fn create_node(
 
     tracing::trace!("RELAY config {:?}", relay_mode);
 
-    let endpoint_builder = Endpoint::builder()
+    let mut endpoint_builder = Endpoint::builder()
         .relay_mode(relay_mode)
         .address_lookup(PkarrPublisher::n0_dns())
         .address_lookup(DnsAddressLookup::n0_dns())
         .address_lookup(MdnsAddressLookup::builder());
+
+    if !node_config.secret_key.is_empty() {
+        let key_bytes = hex::decode(&node_config.secret_key)
+            .map_err(|e| RustlerError::Term(Box::new(format!("Invalid secret_key hex: {}", e))))?;
+        let key_array: [u8; 32] = key_bytes.try_into()
+            .map_err(|_| RustlerError::Term(Box::new("secret_key must be 32 bytes (64 hex chars)".to_string())))?;
+        let secret_key = SecretKey::from_bytes(&key_array);
+        endpoint_builder = endpoint_builder.secret_key(secret_key);
+        tracing::info!("Using provided secret key for node identity persistence");
+    }
 
     let hyparview_config = if node_config.is_whale_node {
         iroh_gossip::proto::HyparviewConfig {
@@ -2061,7 +2072,12 @@ fn on_load(env: Env, _info: Term) -> bool {
         .with_ansi(atty::is(atty::Stream::Stdout))
         .finish();
 
-    tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
+    // Use try_init pattern to avoid panic if logger is already set
+    // This can happen during hot code reloading or NIF reload
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(_) => println!("Tracing subscriber initialized"),
+        Err(_) => println!("Tracing subscriber already initialized, skipping"),
+    }
 
     println!("Initializing Rust Iroh NIF module ...");
     let _ = rustler::resource!(NodeRef, env);

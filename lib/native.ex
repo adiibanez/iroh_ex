@@ -356,8 +356,8 @@ end
 
 defmodule IrohEx.NodeConfig do
   @moduledoc false
-  @enforce_keys [:is_whale_node, :active_view_capacity, :passive_view_capacity, :relay_urls, :discovery]
-  defstruct [:is_whale_node, :active_view_capacity, :passive_view_capacity, :relay_urls, :discovery]
+  @enforce_keys [:is_whale_node, :active_view_capacity, :passive_view_capacity, :relay_urls, :discovery, :secret_key]
+  defstruct [:is_whale_node, :active_view_capacity, :passive_view_capacity, :relay_urls, :discovery, :secret_key]
 
   @default_relay_urls ["https://euw1-1.relay.iroh.network./"]
   @default_discovery ["n0", "local_network"]
@@ -367,14 +367,16 @@ defmodule IrohEx.NodeConfig do
     active_view_capacity: integer(),
     passive_view_capacity: integer(),
     relay_urls: [String.t()],
-    discovery: [String.t()]
+    discovery: [String.t()],
+    secret_key: String.t()
   }
 
-  def build, do: %__MODULE__{
-    is_whale_node: false,
-    active_view_capacity: 10,
-    passive_view_capacity: 10,
-    relay_urls: @default_relay_urls,
-    discovery: @default_discovery
+  def build(opts \\ []), do: %__MODULE__{
+    is_whale_node: Keyword.get(opts, :is_whale_node, false),
+    active_view_capacity: Keyword.get(opts, :active_view_capacity, 10),
+    passive_view_capacity: Keyword.get(opts, :passive_view_capacity, 10),
+    relay_urls: Keyword.get(opts, :relay_urls, @default_relay_urls),
+    discovery: Keyword.get(opts, :discovery, @default_discovery),
+    secret_key: Keyword.get(opts, :secret_key, "")
   }
 end
