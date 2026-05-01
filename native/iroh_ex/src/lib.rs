@@ -42,7 +42,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use iroh::{
-    endpoint::Connection, protocol::ProtocolHandler, Endpoint, EndpointAddr, SecretKey,
+    endpoint::{presets, Connection}, protocol::ProtocolHandler, Endpoint, EndpointAddr, SecretKey,
 };
 
 // NodeId is now just PublicKey in iroh 0.95+
@@ -145,7 +145,7 @@ impl Message {
 #[rustler::nif]
 pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
     let _ = env;
-    let secret_key = SecretKey::generate(&mut rand::rng());
+    let secret_key = SecretKey::generate();
 
     let bytes: [u8; 32] = secret_key.to_bytes();
     let hex_string = hex::encode(bytes);
@@ -206,7 +206,7 @@ pub fn create_node(
 
     tracing::trace!("RELAY config {:?}", relay_mode);
 
-    let mut endpoint_builder = Endpoint::builder()
+    let mut endpoint_builder = Endpoint::builder(presets::Minimal)
         .relay_mode(relay_mode)
         .address_lookup(PkarrPublisher::n0_dns())
         .address_lookup(DnsAddressLookup::n0_dns())
