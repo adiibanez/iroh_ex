@@ -2,7 +2,7 @@
 
 [package]
 name = "iroh_ex"
-version = "0.0.17"
+version = "0.0.18"
 authors = []
 edition = "2021"
 
