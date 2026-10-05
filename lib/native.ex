@@ -148,23 +148,24 @@ defmodule IrohEx.Native do
   # ============================================================================
   # DHT AUTO-DISCOVERY FUNCTIONS
   # ============================================================================
-  # TODO: Re-enable when distributed-topic-tracker updates to support iroh-gossip 0.96
-  #
-  # @doc """
-  # Subscribe to a gossip topic with DHT-based auto-discovery.
-  # This allows nodes to find each other without exchanging tickets.
-  #
-  # ## Parameters
-  #   - `node` - The node reference
-  #   - `topic_name` - The topic name to subscribe to
-  #   - `secret_seed` - Optional secret seed for key derivation (nil for random)
-  #
-  # ## Returns
-  #   - `{:ok, node_ref}` on success
-  #   - `{:error, term()}` on failure
-  # """
-  # @spec subscribe_with_auto_discovery(reference(), binary(), binary() | nil) :: {:ok, reference()} | {:error, term()}
-  # def subscribe_with_auto_discovery(_node, _topic_name, _secret_seed), do: error()
+
+  @doc """
+  Subscribe to a gossip topic with DHT-based auto-discovery.
+  This allows nodes to find each other without exchanging tickets.
+
+  ## Parameters
+    - `node` - The node reference
+    - `topic_name` - The topic name to subscribe to
+    - `secret_seed` - Optional shared secret for DHT record encryption
+      (nil derives it from the topic name, so any node using the same
+      topic name can join)
+
+  ## Returns
+    - `{:ok, node_ref}` on success
+    - `{:error, term()}` on failure
+  """
+  @spec subscribe_with_auto_discovery(reference(), binary(), binary() | nil) :: {:ok, reference()} | {:error, term()}
+  def subscribe_with_auto_discovery(_node, _topic_name, _secret_seed), do: error()
 
   # ============================================================================
   # AUTOMERGE CRDT FUNCTIONS

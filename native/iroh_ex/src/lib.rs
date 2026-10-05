@@ -9,7 +9,8 @@
 // #![feature(mpmc_channel)]
 #![allow(clippy::too_many_arguments)]
 
-use iroh::address_lookup::{dns::DnsAddressLookup, mdns::MdnsAddressLookup, pkarr::PkarrPublisher};
+use iroh::address_lookup::{dns::DnsAddressLookup, pkarr::PkarrPublisher};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh::protocol::AcceptError;
 use iroh::PublicKey;
 use iroh::RelayMap;
@@ -80,14 +81,10 @@ use iroh_docs::{
 };
 
 // Distributed topic tracker for DHT-based auto-discovery
-// TODO: Re-enable when distributed-topic-tracker updates to support iroh-gossip 0.96
-// use distributed_topic_tracker::{
-//     AutoDiscoveryGossip,
-//     RecordPublisher,
-//     RecordTopic,
-//     signing_keypair,
-//     unix_minute,
-// };
+use distributed_topic_tracker::{
+    AutoDiscoveryGossip, Config as TrackerConfig, RecordPublisher, TopicId as TrackerTopicId,
+};
+use ed25519_dalek::SigningKey;
 
 use iroh::Watcher;
 
@@ -433,12 +430,13 @@ pub fn send_message(
     let _ = env;
     let resource_arc = node_ref.0.clone();
 
-    let (endpoint, _gossip, sender) = {
+    let (endpoint, _gossip, sender, dht_sender) = {
         let state = resource_arc.lock().unwrap();
         (
             state.endpoint.clone(),
             state.gossip.clone(),
             state.sender.clone(),
+            state.dht_sender.clone(),
         )
     };
 
@@ -447,7 +445,14 @@ pub fn send_message(
         name: message,
     };
 
-    let result = RUNTIME.block_on(sender.broadcast(message.to_vec().into()));
+    // A topic joined via DHT auto-discovery replaces the ticket-based one
+    let result = if let Some(dht_sender) = dht_sender {
+        RUNTIME.block_on(dht_sender.broadcast(message.to_vec()))
+    } else {
+        RUNTIME
+            .block_on(sender.broadcast(message.to_vec().into()))
+            .map_err(anyhow::Error::from)
+    };
     if let Err(e) = result {
         tracing::error!("Failed to send message: {:?}", e);
         return Err(RustlerError::Term(Box::new(e.to_string())));
@@ -781,7 +786,9 @@ fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
     let node = node_ref.0.clone();
 
     let endpoint = {
-        let state = node_ref.0.lock().unwrap();
+        let mut state = node_ref.0.lock().unwrap();
+        // Dropping the sender releases the tracker topic keep-alive and stops DHT publishing
+        state.dht_sender = None;
         state.endpoint.clone() as Endpoint
     };
 
@@ -1143,37 +1150,248 @@ pub fn docs_list(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
 // ============================================================================
 // DHT AUTO-DISCOVERY FUNCTIONS
 // ============================================================================
-// TODO: Re-enable when distributed-topic-tracker updates to support iroh-gossip 0.96
-//
-// /// Subscribe to a topic with DHT-based auto-discovery
-// /// This allows nodes to find each other without exchanging tickets
-// #[rustler::nif(schedule = "DirtyCpu")]
-// pub fn subscribe_with_auto_discovery(
-//     env: Env,
-//     node_ref: ResourceArc<NodeRef>,
-//     topic_name: String,
-//     secret_seed: Option<String>,
-// ) -> Result<ResourceArc<NodeRef>, RustlerError> {
-//     let node_ref_clone = node_ref.clone();
-//     let pid = env.pid();
-//
-//     RUNTIME.spawn(async move {
-//         if let Err(e) = subscribe_with_auto_discovery_internal(node_ref_clone, pid, topic_name, secret_seed).await {
-//             tracing::error!("❌ Error in auto-discovery subscription: {:?}", e);
-//         }
-//     });
-//
-//     Ok(node_ref)
-// }
-//
-// async fn subscribe_with_auto_discovery_internal(
-//     node_ref: ResourceArc<NodeRef>,
-//     pid: LocalPid,
-//     topic_name: String,
-//     secret_seed: Option<String>,
-// ) -> Result<()> {
-//     ... (function body commented out - see git history for full code)
-// }
+/// Subscribe to a topic with DHT-based auto-discovery
+/// This allows nodes to find each other without exchanging tickets
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn subscribe_with_auto_discovery(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    topic_name: String,
+    secret_seed: Option<String>,
+) -> Result<ResourceArc<NodeRef>, RustlerError> {
+    let node_ref_clone = node_ref.clone();
+    let pid = env.pid();
+
+    RUNTIME.spawn(async move {
+        if let Err(e) =
+            subscribe_with_auto_discovery_internal(node_ref_clone, pid, topic_name, secret_seed)
+                .await
+        {
+            tracing::error!("❌ Error in auto-discovery subscription: {:?}", e);
+        }
+    });
+
+    Ok(node_ref)
+}
+
+async fn subscribe_with_auto_discovery_internal(
+    node_ref: ResourceArc<NodeRef>,
+    _pid: LocalPid,
+    topic_name: String,
+    secret_seed: Option<String>,
+) -> Result<()> {
+    let resource_arc = node_ref.0.clone();
+
+    let (endpoint, gossip, node_id_short, erlang_sender_clone) = {
+        let state = resource_arc.lock().unwrap();
+        (
+            state.endpoint.clone() as Endpoint,
+            state.gossip.clone() as Gossip,
+            state.endpoint.id().fmt_short().to_string(),
+            state.mpsc_event_sender.clone(),
+        )
+    };
+
+    // Topic id is derived from the topic name (hashed internally)
+    let tracker_topic = TrackerTopicId::new(topic_name.clone());
+
+    // Sign DHT records with the node's own ed25519 key
+    let signing_key = SigningKey::from_bytes(&endpoint.secret_key().to_bytes());
+
+    // The initial secret encrypts DHT records: all peers of a topic must share it
+    let initial_secret: Vec<u8> = if let Some(seed) = secret_seed {
+        let mut bytes = seed.as_bytes().to_vec();
+        bytes.resize(32, 0);
+        bytes
+    } else {
+        // No shared secret given: derive it from the topic name so that
+        // independent nodes subscribing to the same topic can still find each other
+        let mut bytes = topic_name.as_bytes().to_vec();
+        bytes.resize(32, 0);
+        bytes
+    };
+
+    let record_publisher = RecordPublisher::new(
+        tracker_topic,
+        signing_key,
+        None, // default secret rotation
+        initial_secret,
+        TrackerConfig::default(),
+    );
+
+    tracing::info!(
+        "📡 Subscribing to topic '{}' with DHT auto-discovery, node: {}",
+        topic_name,
+        node_id_short
+    );
+
+    // The no_wait variant returns before the join completes: the receiver is a
+    // broadcast channel that drops events sent before split(), so we must be
+    // subscribed before the first NeighborUp arrives
+    let topic = gossip
+        .subscribe_and_join_with_auto_discovery_no_wait(record_publisher)
+        .await
+        .context("❌ Failed to subscribe with auto-discovery")?;
+
+    tracing::info!("✅ Successfully subscribed to topic with auto-discovery");
+
+    let (dht_sender, mut dht_receiver) = topic
+        .split()
+        .await
+        .context("❌ Failed to split topic into sender/receiver")?;
+
+    // The dht_sender keeps the tracker topic alive and lets send_message
+    // broadcast on the auto-discovered topic
+    {
+        let mut state = node_ref.0.lock().unwrap();
+        state.dht_sender = Some(dht_sender);
+    }
+
+    // Notify Elixir once the topic is actually joined (first neighbor or message)
+    {
+        let mut join_waiter = dht_receiver.clone();
+        let joined_sender = erlang_sender_clone.clone();
+        let joined_node = node_id_short.clone();
+        let joined_topic = topic_name.clone();
+        RUNTIME.spawn(async move {
+            match join_waiter.joined().await {
+                Ok(()) => {
+                    tracing::info!("✅ Auto-discovery topic '{}' joined", joined_topic);
+                    if let Err(e) = joined_sender
+                        .send(ErlangMessageEvent {
+                            atom: atoms::iroh_gossip_joined(),
+                            payload: Payload::List(vec![
+                                Payload::String(joined_node),
+                                Payload::String(joined_topic),
+                                Payload::String("auto_discovery".to_string()),
+                            ]),
+                        })
+                        .await
+                    {
+                        tracing::warn!(
+                            "❌ Failed to send auto-discovery joined notification: {:?}",
+                            e
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("❌ Auto-discovery join wait ended: {:?}", e);
+                }
+            }
+        });
+    }
+
+    let erlang_sender_inner = erlang_sender_clone.clone();
+    let node_id_short_clone = node_id_short.clone();
+
+    let event_handler_task = Some(RUNTIME.spawn(async move {
+        loop {
+            match dht_receiver.next().await {
+                Ok(event) => {
+                    match event {
+                        Event::NeighborUp(pub_key) => {
+                            let neighbor_count = dht_receiver
+                                .neighbors()
+                                .await
+                                .map(|n| n.len())
+                                .unwrap_or(0);
+
+                            if erlang_sender_inner.is_closed() {
+                                tracing::error!("❌ GossipEvent::NeighborUp: erlang_sender is closed");
+                                continue;
+                            }
+
+                            let event = ErlangMessageEvent {
+                                atom: atoms::iroh_gossip_neighbor_up(),
+                                payload: Payload::List(vec![
+                                    Payload::String(node_id_short_clone.clone()),
+                                    Payload::String(pub_key.fmt_short().to_string()),
+                                    Payload::Integer(neighbor_count as i64),
+                                ]),
+                            };
+
+                            if let Err(e) = erlang_sender_inner.send(event).await {
+                                tracing::error!("❌ Failed to send NeighborUp event: {:?}", e);
+                            }
+                        }
+
+                        Event::NeighborDown(pub_key) => {
+                            if erlang_sender_inner.is_closed() {
+                                continue;
+                            }
+
+                            let event = ErlangMessageEvent {
+                                atom: atoms::iroh_gossip_neighbor_down(),
+                                payload: Payload::List(vec![
+                                    Payload::String(node_id_short_clone.clone()),
+                                    Payload::String(pub_key.fmt_short().to_string()),
+                                ]),
+                            };
+
+                            if let Err(e) = erlang_sender_inner.send(event).await {
+                                tracing::error!("❌ Failed to send NeighborDown event: {:?}", e);
+                            }
+                        }
+
+                        Event::Received(msg) => {
+                            if erlang_sender_inner.is_closed() {
+                                continue;
+                            }
+
+                            match Message::from_bytes(&msg.content) {
+                                Ok(message) => match message {
+                                    Message::AboutMe { from, name } => {
+                                        tracing::debug!("FROM: {} MSG: {}", from.fmt_short(), name);
+
+                                        let event = ErlangMessageEvent {
+                                            atom: atoms::iroh_gossip_message_received(),
+                                            payload: Payload::List(vec![
+                                                Payload::String(node_id_short_clone.clone()),
+                                                Payload::String(name.clone()),
+                                            ]),
+                                        };
+
+                                        if let Err(e) = erlang_sender_inner.send(event).await {
+                                            tracing::error!("❌ Failed to send message event: {:?}", e);
+                                        }
+                                    }
+                                    Message::Message { from, text } => {
+                                        tracing::debug!("📝 {}: {}", from, text);
+                                    }
+                                },
+                                Err(e) => {
+                                    tracing::warn!("❌ Failed to parse message: {:?}", e);
+                                }
+                            }
+                        }
+
+                        unhandled_event => {
+                            tracing::debug!("🔍 Ignored unhandled event: {:?}", unhandled_event);
+                        }
+                    }
+                }
+                Err(e) => {
+                    // ChannelError is not exported by distributed-topic-tracker,
+                    // so distinguish lagged (recoverable) from closed via Display
+                    let msg = e.to_string();
+                    if msg.contains("lagged") {
+                        tracing::warn!("🚨 DHT gossip receiver lagged: {}", msg);
+                        continue;
+                    }
+                    tracing::error!("❌ DHT gossip receiver closed: {}", msg);
+                    break;
+                }
+            }
+        }
+    }));
+
+    {
+        let mut state = node_ref.0.lock().unwrap();
+        state.event_handler_task = event_handler_task;
+    }
+
+    Ok(())
+}
 
 // // async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
 // async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {

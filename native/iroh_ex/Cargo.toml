@@ -2,7 +2,7 @@
 
 [package]
 name = "iroh_ex"
-version = "0.0.18"
+version = "0.0.19"
 authors = []
 edition = "2021"
 
@@ -25,14 +25,15 @@ rustler = { git = "https://github.com/filmor/rustler.git", rev = "17740a6dc39c79
 # , default-features = false, features = ["staticlib", "derive", "nif_version_2_15"]
 # iroh = {version = "0.34.1", git = "https://github.com/n0-computer/iroh.git", rev = "42b605e53d89c89faf0f63a86bf48d0039ea53b4", features = ["discovery-local-network"]}
 # iroh = { git = "https://github.com/n0-computer/iroh.git", branch = "main", features = ["discovery-local-network"]}
-iroh = {version = "0.98.2", features = ["address-lookup-mdns"]}
+iroh = "1.3.0"
+iroh-mdns-address-lookup = "0.4"
 # iroh-net = { git = "https://github.com/n0-computer/iroh.git", rev = "98b4a1b9f86f39575c7670d80facdb82659c004a" }
 
 # , rev = "8064448e7923960931728c256877138f33ca8282"
 # , rev = "22bf681a7db49da735c25ca831cd94c206e53a48"
 # iroh-gossip = { git = "https://github.com/n0-computer/iroh-gossip.git", rev = "6c72d298032ba49736f52ed13b32f556acd2f298"}
 # iroh-gossip = {version = "0.34.1", git = "https://github.com/n0-computer/iroh-gossip.git", rev = "4384f73721283998e483b0454d2f2a6d6afee19b"}
-iroh-gossip = "0.98.0"
+iroh-gossip = "0.101.0"
 
 # Frando PR
 # 4384f73721283998e483b0454d2f2a6d6afee19b
@@ -47,12 +48,12 @@ iroh-gossip = "0.98.0"
 # hickory-resolver = "0.25.1"
 # hickory-resolver = "0.25.0-alpha.5"
 
-iroh-blobs = "0.100.0"
-iroh-docs = "0.98.0"
+iroh-blobs = "0.103.0"
+iroh-docs = "0.101.0"
 
 # DHT-based auto-discovery for gossip topics
-# TODO: Re-enable when distributed-topic-tracker updates to support iroh-gossip 0.96
-# distributed-topic-tracker = { version = "0.2.5", features = ["iroh-gossip"] }
+distributed-topic-tracker = { version = "0.3.5", features = ["iroh-gossip"] }
+ed25519-dalek = "3.0.0"
 
 # Automerge CRDT support
 automerge = "0.5"

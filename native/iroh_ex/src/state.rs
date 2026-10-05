@@ -22,6 +22,7 @@ use iroh::{
 #[allow(dead_code)]
 type NodeId = PublicKey;
 
+use distributed_topic_tracker::GossipSender as DhtGossipSender;
 use iroh_gossip::api::{GossipReceiver, GossipSender};
 use iroh_gossip::net::Gossip;
 
@@ -82,6 +83,9 @@ pub struct NodeState {
     pub gossip: Gossip,
     pub sender: GossipSender,
     pub receiver: GossipReceiver,
+    // Sender for a topic joined via DHT auto-discovery; preferred by send_message when set.
+    // Holds an Arc keep-alive of the tracker topic, so dropping it stops DHT publishing.
+    pub dht_sender: Option<DhtGossipSender>,
     pub mpsc_event_sender: Sender<ErlangMessageEvent>,
     pub mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
@@ -120,6 +124,7 @@ impl NodeState {
             gossip,
             sender,
             receiver,
+            dht_sender: None,
             mpsc_event_sender,
             mpsc_event_receiver,
             erlang_event_handler_task: None,
