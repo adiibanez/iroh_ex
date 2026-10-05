@@ -10,14 +10,25 @@
 
 // use pprof::ProfilerGuard;
 
-use crate::actor::ActorHandle;
-use crate::gossip_actor::GossipActorMessage;
+// use crate::actor::ActorHandle;
+// use crate::gossip_actor::GossipActorMessage;
 use iroh::{
     endpoint::Connection,
     protocol::{ProtocolHandler, Router},
-    Endpoint, NodeAddr, NodeId, PublicKey, SecretKey,
+    Endpoint, PublicKey, SecretKey,
 };
-use iroh_gossip::net::{Gossip, GossipSender};
+
+// NodeId is now just PublicKey in iroh 0.95+
+#[allow(dead_code)]
+type NodeId = PublicKey;
+
+use distributed_topic_tracker::GossipSender as DhtGossipSender;
+use iroh_gossip::api::{GossipReceiver, GossipSender};
+use iroh_gossip::net::Gossip;
+
+// Blobs and Docs imports
+use iroh_blobs::store::mem::MemStore as BlobMemStore;
+use iroh_docs::protocol::Docs;
 use rustler::{Atom, Encoder, Env, LocalPid, Monitor, OwnedEnv, Term};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -29,6 +40,10 @@ use tokio::task::JoinHandle;
 // use std::sync::mpmc::Receiver;
 use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
+
+// Automerge imports
+use automerge::AutoCommit;
+use automerge::ActorId;
 
 // use tracing_subscriber::{Registry, prelude::*};
 // use console_subscriber::ConsoleLayer;
@@ -67,13 +82,22 @@ pub struct NodeState {
     pub router: Router,
     pub gossip: Gossip,
     pub sender: GossipSender,
+    pub receiver: GossipReceiver,
+    // Sender for a topic joined via DHT auto-discovery; preferred by send_message when set.
+    // Holds an Arc keep-alive of the tracker topic, so dropping it stops DHT publishing.
+    pub dht_sender: Option<DhtGossipSender>,
     pub mpsc_event_sender: Sender<ErlangMessageEvent>,
     pub mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
     pub erlang_event_handler_task: Option<JoinHandle<()>>,
     pub event_handler_task: Option<JoinHandle<()>>,
     pub discovery_event_handler_task: Option<JoinHandle<()>>,
-    pub gossip_actor: Option<ActorHandle<GossipActorMessage>>,
-    pub erlang_actor: Option<ActorHandle<ErlangMessageEvent>>,
+    // Blobs and Docs
+    pub blobs_store: Option<BlobMemStore>,
+    pub docs: Option<Docs>,
+    // Automerge CRDT support
+    pub automerge_docs: HashMap<String, AutoCommit>,
+    pub automerge_actor: Option<ActorId>,
+    pub automerge_sync_states: HashMap<String, HashMap<String, automerge::sync::State>>,
 }
 
 impl NodeState {
@@ -83,9 +107,15 @@ impl NodeState {
         router: Router,
         gossip: Gossip,
         sender: GossipSender,
+        receiver: GossipReceiver,
         mpsc_event_sender: Sender<ErlangMessageEvent>,
         mpsc_event_receiver: Arc<RwLock<mpsc::Receiver<ErlangMessageEvent>>>,
+        blobs_store: Option<BlobMemStore>,
+        docs: Option<Docs>,
     ) -> Self {
+        // Generate actor ID from endpoint public key for deterministic identity
+        let actor_id = Some(ActorId::from(endpoint.id().as_bytes()));
+
         NodeState {
             pid,
             monitor_ref: None,
@@ -93,20 +123,26 @@ impl NodeState {
             router,
             gossip,
             sender,
+            receiver,
+            dht_sender: None,
             mpsc_event_sender,
             mpsc_event_receiver,
             erlang_event_handler_task: None,
             event_handler_task: None,
             discovery_event_handler_task: None,
-            gossip_actor: None,
-            erlang_actor: None,
+            blobs_store,
+            docs,
+            // Automerge fields
+            automerge_docs: HashMap::new(),
+            automerge_actor: actor_id,
+            automerge_sync_states: HashMap::new(),
         }
     }
 }
 
 impl Drop for NodeState {
     fn drop(&mut self) {
-        // tracing::info!("🚀 Cleaning up NodeState before exit!");
+        tracing::debug!("🚀 Cleaning up NodeState before exit!");
 
         if let Some(handle) = self.erlang_event_handler_task.take() {
             handle.abort();
@@ -125,7 +161,7 @@ impl Drop for NodeState {
         let monitor_ref = self.monitor_ref;
 
         RUNTIME.spawn(async move {
-            gossip.shutdown().await;
+            let _ = gossip.shutdown().await;
             let _ = router.shutdown().await;
             endpoint.close().await;
             tracing::debug!("✅ NodeState cleanup complete!");
@@ -199,6 +235,7 @@ pub mod atoms {
 
         // TODO: rename non gossip related events to _node_ in both rust / elixir
         iroh_node_connected,
+        iroh_node_test,
         iroh_gossip_joined,
         iroh_gossip_neighbor_up,
         iroh_gossip_neighbor_down,
@@ -206,5 +243,13 @@ pub mod atoms {
         iroh_gossip_message_received,
         iroh_gossip_message_unhandled,
         iroh_gossip_list_topics,
+
+        // Automerge events
+        automerge_doc_created,
+        automerge_doc_changed,
+        automerge_doc_synced,
+        automerge_doc_merged,
+        automerge_sync_message_received,
+        automerge_conflict_detected,
     }
 }

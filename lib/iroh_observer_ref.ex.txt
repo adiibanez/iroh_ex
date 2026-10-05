@@ -1,0 +1,367 @@
+
+defmodule IrohObserver2 do
+  use GenServer
+  alias IrohEx.Native
+
+  @rand_msg_delay 1000
+  @node_size 5
+
+  # Starts the GenServer and initiates tracing
+  def start_link(graph) do
+    case Process.whereis(__MODULE__) do
+      nil ->
+        # IO.puts("#{__MODULE__} No Process running")
+        # SigmaGraph.add_node(graph, %{id: "Status", label: "No Process running"}, true)
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+
+      # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
+
+      pid when is_pid(pid) ->
+        # IO.puts("#{__MODULE__} Process already running #{inspect(pid)}")
+        Process.exit(pid, :kill)
+        # SigmaGraph.add_node(graph, %{id: "Status", label: "Killing existing Process"}, true)
+        # Wait a moment to ensure the process exits
+        Process.sleep(100)
+        GenServer.start_link(__MODULE__, graph, name: __MODULE__)
+        # SigmaGraph.add_node(graph, %{id: "Status", label: "Process started"}, true)
+    end
+  end
+
+  @impl true
+  def init({graph, datatable}) do
+    {:ok, %{graph: graph, datatable: datatable}}
+  end
+
+  @impl true
+  def handle_call(
+        {:setup_nodes, node_cnt, custom_pid},
+        _from,
+        %{graph: graph} = state
+      ) do
+    pid =
+      case is_nil(custom_pid) do
+        true -> self()
+        false -> custom_pid
+      end
+
+    mothership_node_ref = Native.create_node(pid)
+    ticket = Native.create_ticket(mothership_node_ref)
+
+    # IO.inspect(ticket, label: "Node1 ticket")
+
+    # connect main node
+    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
+    # Task.async(fn -> Native.connect_node(mothership_node_ref, ticket) end)
+
+    nodes = create_nodes(node_cnt, pid)
+    # IO.inspect(nodes, label: "Node list")
+
+    # draw nodes
+
+    Enum.each(nodes, fn node ->
+      node_addr = Native.gen_node_addr(node)
+
+      SigmaGraph.add_node(
+        graph,
+        %{
+          id: "#{node_addr}",
+          layout: "ring",
+          size: @node_size,
+          color: "grey",
+          label: "#{node_addr}"
+        },
+        true
+      )
+    end)
+
+    {:reply, nodes,
+     state
+     |> Map.put(:ticket, ticket)
+     |> Map.put(:mothership_node, mothership_node_ref)
+     |> Map.put(:nodes, nodes)
+     |> Map.put(:peers, %{})}
+  end
+
+  @impl true
+  def handle_call(
+        {:connect_nodes},
+        _from,
+        %{graph: graph, ticket: ticket, mothership_node: _mothership_node, nodes: nodes} = state
+      ) do
+    tasks =
+      Enum.map(nodes, fn n ->
+        # IO.inspect(n, label: "Connect Node ref")
+        node_addr = Native.gen_node_addr(n)
+
+        Task.async(fn ->
+          Native.connect_node(n, ticket)
+
+          SigmaGraph.add_node(
+            graph,
+            %{
+              id: "#{node_addr}",
+              layout: "ring",
+              size: @node_size,
+              color: "grey",
+              label: "#{node_addr}"
+            },
+            true
+          )
+        end)
+      end)
+
+    Enum.each(tasks, &Task.await/1)
+    {:reply, [], state}
+  end
+
+  @impl true
+  def handle_call(
+        {:send_messages, msg_cnt, use_random_node},
+        _from,
+        %{graph: graph, ticket: _ticket, mothership_node: _mothership_node, nodes: nodes} = state
+      ) do
+    no_random_node = Enum.random(nodes)
+
+    msg_sender_receipts =
+      1..msg_cnt
+      |> Enum.map(fn x ->
+        Task.async(fn ->
+          node =
+            if use_random_node do
+              Enum.random(nodes)
+            else
+              no_random_node
+            end
+
+          node_id = Native.gen_node_addr(node)
+
+          rand_msg_delay = :rand.uniform(@rand_msg_delay)
+          Process.sleep(rand_msg_delay)
+
+          msg = "MSG:#{x}"
+          timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+
+          SigmaGraph.add_node(
+            graph,
+            %{id: msg, layout: "grid", size: @node_size, label: msg, color: "grey"},
+            true
+          )
+
+          receipt = %{
+            sender: node_id,
+            timestamp: timestamp,
+            receipts: []
+          }
+
+          {msg, receipt}
+        end)
+      end)
+      |> Enum.map(&Task.await/1)
+      |> Map.new()
+
+    msg_receipts =
+      msg_sender_receipts
+      |> Map.new(fn {msg, _receipt} -> {msg, []} end)
+
+    # IO.puts("#{inspect(msg_receipts)} Final Receipts")
+    # IO.puts("#{inspect(msg_sender_receipts)} Final Sender Receipts")
+
+    {:reply, msg_receipts,
+     state
+     |> Map.put(:msg_sender_receipts, msg_sender_receipts)
+     |> Map.put(:msg_receipts, msg_receipts)}
+  end
+
+  @impl true
+  def handle_call(
+        :draw_missing,
+        _from,
+        %{graph: graph, nodes: nodes, msg_receipts: msg_receipts, datatable: _datatable} = state
+      ) do
+    node_ids =
+      Enum.map(nodes, fn node_ref ->
+        Native.gen_node_addr(node_ref)
+      end)
+
+    # IO.inspect(node_ids, label: "node ids")
+    # IO.inspect(msg_receipts, label: "receipts")
+
+    data = []
+    # msg_receipts = []
+
+    Enum.each(msg_receipts, fn {msg, receipts} ->
+      # Find missing node IDs
+
+      IO.inspect(receipts, label: "Receipts")
+      missing_nodes = node_ids -- receipts
+
+      IO.inspect(missing_nodes, label: "Missing nodes")
+      # Enum.map(receipts || [], & &1.sender)
+
+      case missing_nodes do
+        [] ->
+          IO.puts("All nodes received #{msg}")
+
+          SigmaGraph.add_node(
+            graph,
+            %{id: msg, layout: "grid", size: @node_size, label: msg, color: "green"},
+            true
+          )
+
+        _ ->
+          SigmaGraph.add_node(
+            graph,
+            %{
+              id: msg,
+              layout: "grid",
+              size: @node_size,
+              label: "Missing nodes: #{Enum.join(missing_nodes, ",")}",
+              color: "red"
+            },
+            true
+          )
+
+          IO.puts("Missing nodes #{Enum.join(missing_nodes, ",")} for #{msg}")
+
+          _data = data ++ [%{msg: msg, missing: Enum.join(missing_nodes, ",")}]
+
+          Enum.each(missing_nodes, fn missing_node ->
+            # IO.puts("Missing node #{missing_node} for #{msg}")
+            SigmaGraph.add_edge(graph, %{source: msg, target: missing_node, props: %{ type: "curved" }})
+          end)
+      end
+    end)
+
+    # Kino.DataTable.update(datatable, data)
+
+    {:reply, [], state}
+  end
+
+  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{graph: graph} = state) do
+    IO.puts("iroh_gossip_neighbor_up #{source} #{target}")
+
+    state =
+      update_in(state.peers, fn peers ->
+        updated = Map.update(peers, source, [target], fn peers -> peers ++ [target] end)
+        updated
+      end)
+
+    peers = Enum.count(state.peers[source])
+
+    color =
+      cond do
+        peers == 0 -> "grey"
+        peers < 3 -> "orange"
+        peers >= 3 -> "green"
+      end
+
+    SigmaGraph.merge_node(
+      graph,
+      %{
+        id: source,
+        layout: "ring",
+        size: @node_size + peers * 2,
+        color: color,
+        label: "#{source} P:#{peers}"
+      }
+    )
+
+    SigmaGraph.add_edge(graph, %{source: source, target: target})
+
+    {:noreply, state}
+  end
+
+  def handle_info({:iroh_gossip_neighbor_down, source, target}, %{graph: graph} = state) do
+    IO.puts("iroh_gossip_neighbor_down #{source} #{target}")
+
+    state =
+      update_in(state.peers, fn peers ->
+        updated = Map.update(peers, source, [], fn peers -> peers -- [target] end)
+        updated
+      end)
+
+    peers = Enum.count(state.peers[source])
+
+    color =
+      cond do
+        peers == 0 -> "grey"
+        peers < 3 -> "orange"
+        peers >= 3 -> "green"
+      end
+
+    SigmaGraph.merge_node(
+      graph,
+      %{
+        id: source,
+        layout: "ring",
+        size: @node_size + peers * 2,
+        color: color,
+        label: "#{source} P:#{peers}"
+      }
+    )
+
+    SigmaGraph.remove_edge(graph, %{source: source, target: target})
+
+    {:noreply, state}
+  end
+
+  def handle_info({:iroh_gossip_node_discovered, source, target}, %{graph: _graph} = state) do
+    # SigmaGraph.add_edge(graph, %{source: source, target: target})
+    IO.puts("iroh_gossip_node_discovered #{source} #{target}")
+    {:noreply, state}
+  end
+
+  def handle_info(
+        {:iroh_gossip_message_received, target, msg},
+        %{graph: _graph} = state
+      ) do
+    # SigmaGraph.add_edge(graph, %{source: msg, target: target, type: "RECEIVED", color: "green"})
+
+    IO.puts("iroh_gossip_message_received #{target} #{msg}")
+
+    # IO.puts("#{inspect(msg_receipts)} Before update")
+
+    # timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+
+    state =
+      update_in(state.msg_receipts, fn msg_receipts ->
+        updated = Map.update(msg_receipts, msg, [target], fn receipts -> receipts ++ [target] end)
+        IO.puts("Updated: #{msg} #{inspect(updated)}")
+        updated
+      end)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    # IO.inspect(msg, label: "#{__MODULE__} handle_info catchall")
+    {:noreply, state}
+  end
+
+  def create_nodes(node_count, pid) when is_integer(node_count) and node_count > 0 do
+    1..node_count
+    |> Enum.map(fn _ ->
+      Task.async(fn ->
+        Native.create_node(pid)
+      end)
+    end)
+    # Await results
+    |> Enum.map(&Task.await/1)
+    |> Enum.reduce([], fn node_ref, acc ->
+      case node_ref do
+        # Collect valid references
+        ref when is_reference(ref) ->
+          [ref | acc]
+
+        error ->
+          IO.puts("Error creating node: #{inspect(error)}")
+          # Skip errors
+          acc
+      end
+    end)
+    # |> dbg()
+    # Maintain original order
+    |> Enum.reverse()
+  end
+end

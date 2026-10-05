@@ -5,7 +5,9 @@
 ```elixir
 Mix.install([
   {:kino, "~> 0.15.3"},
-  {:iroh_ex, "~> 0.0.10"},
+  {:iroh_ex, "~> 0.0.19"},
+  # {:iroh_ex, path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  # {:iroh_ex, path: "/home/adrianibanez/projects/2025_sensocto/checkouts/iroh_ex"},
   {:rustler, "~> 0.36.1", override: true},
   {:rustler_precompiled, "~> 0.7"}
 ])
@@ -788,16 +790,17 @@ defmodule IrohLogger do
   end
 
   @impl true
-  def handle_info({:iroh_gossip_neighbor_up, source, target, remote_info}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
-    
+  def handle_info({:iroh_gossip_neighbor_up, source, target, active_peers}, %{ graph: graph, peers: peers, nodes: nodes } = state) do
+    # iroh_ex >= 0.0.19 sends {atom, source, target, neighbor_count} without remote_info
+    remote_info = %{}
 
-    case remote_info["conn_type"] do 
+    case remote_info["conn_type"] do
       "None" -> 
         IO.puts("Neighbor up: #{source} #{target} None connection type!")
         {:noreply, state}
 
       _ -> 
-        IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)}")
+        IO.puts("Neighbor up: #{source} #{target} #{inspect(remote_info)} #{active_peers}")
 
         new_peers = case peers[source] do
           nil -> [target]
@@ -1280,7 +1283,7 @@ graph = SigmaGraph.new()
 num_nodes = Kino.Input.number("Number of Nodes", default: 50, min: 3)
 delay_ms = Kino.Input.number("Delay after connecting a batch of nodes", default: 300, min: 0)
 delay_msg_ms = Kino.Input.number("Delay msg random", default: 500, min: 0)
-whale_node_prob = Kino.Input.range("Whale Node Ratio (%)", default: 10, min: 0)
+whale_node_prob = Kino.Input.range("Whale Node Ratio (%)", default: 5, min: 0)
 num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
 use_random = Kino.Input.checkbox("Use Random Sender", default: false)
 chaos_monkey_button = Kino.Control.button("Chaos monkey")

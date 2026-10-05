@@ -1,0 +1,274 @@
+# Automerge Collaborative Documents
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.15.3"},
+  {:iroh_ex, path: Path.expand("../")},
+  {:rustler, "~> 0.36.1", override: true},
+  {:rustler_precompiled, "~> 0.7"},
+  {:jason, "~> 1.4"}
+])
+```
+
+## Introduction
+
+This livebook demonstrates **Automerge CRDT** integration with Iroh for real-time collaborative document editing.
+
+**Automerge** is a Conflict-free Replicated Data Type (CRDT) that enables multiple users to edit the same document simultaneously, with changes automatically merged without conflicts.
+
+### Features Demonstrated
+
+* Creating and managing documents
+* Map operations (key-value data)
+* List operations (ordered sequences)
+* Text operations (collaborative text editing)
+* Counter operations (distributed counters)
+* Forking and merging documents
+
+## Setup
+
+First, let's create an Iroh node that will hold our automerge documents.
+
+```elixir
+# Create a node
+node_config = IrohEx.NodeConfig.build()
+node = IrohEx.Native.create_node(self(), node_config)
+
+IO.puts("Node created successfully!")
+IO.puts("Node ID: #{IrohEx.Native.gen_node_addr(node)}")
+```
+
+## Document Basics
+
+### Creating a Document
+
+```elixir
+alias IrohEx.Automerge
+
+# Create a new document
+doc_id = Automerge.new(node)
+IO.puts("Created document: #{doc_id}")
+
+# List all documents
+docs = Automerge.list(node)
+IO.puts("All documents: #{inspect(docs)}")
+```
+
+### Storing Data with Maps
+
+```elixir
+# Put some data at the root level
+:ok = Automerge.put(node, doc_id, [], "title", "My First Document")
+:ok = Automerge.put(node, doc_id, [], "version", 1)
+:ok = Automerge.put(node, doc_id, [], "created_at", DateTime.utc_now() |> DateTime.to_string())
+
+# Read it back
+title = Automerge.get(node, doc_id, [], "title")
+version = Automerge.get(node, doc_id, [], "version")
+
+IO.puts("Title: #{title}")
+IO.puts("Version: #{version}")
+
+# View all keys
+keys = Automerge.keys(node, doc_id, [])
+IO.puts("Root keys: #{inspect(keys)}")
+```
+
+### Nested Maps
+
+```elixir
+# Create nested structure
+{:ok, _} = Automerge.create_map(node, doc_id, [], "author")
+:ok = Automerge.put(node, doc_id, ["author"], "name", "Alice")
+:ok = Automerge.put(node, doc_id, ["author"], "email", "alice@example.com")
+
+# Create another nested map
+{:ok, _} = Automerge.create_map(node, doc_id, [], "metadata")
+:ok = Automerge.put(node, doc_id, ["metadata"], "format", "markdown")
+:ok = Automerge.put(node, doc_id, ["metadata"], "language", "en")
+
+# Read nested data
+author_name = Automerge.get(node, doc_id, ["author"], "name")
+IO.puts("Author: #{author_name}")
+
+# View as JSON
+json = Automerge.to_json(node, doc_id)
+IO.puts("Document JSON:\n#{json}")
+```
+
+## Lists
+
+```elixir
+# Create a list
+{:ok, _} = Automerge.create_list(node, doc_id, [], "tags")
+
+# Push items
+:ok = Automerge.list_push(node, doc_id, ["tags"], "tutorial")
+:ok = Automerge.list_push(node, doc_id, ["tags"], "crdt")
+:ok = Automerge.list_push(node, doc_id, ["tags"], "collaborative")
+
+# Check length
+length = Automerge.list_length(node, doc_id, ["tags"])
+IO.puts("Number of tags: #{length}")
+
+# Read items
+for i <- 0..(length - 1) do
+  tag = Automerge.list_get(node, doc_id, ["tags"], i)
+  IO.puts("Tag #{i}: #{tag}")
+end
+
+# Insert at specific position
+:ok = Automerge.list_insert(node, doc_id, ["tags"], 0, "featured")
+
+# View updated list
+IO.puts("\nAfter insert:")
+for i <- 0..Automerge.list_length(node, doc_id, ["tags"]) - 1 do
+  IO.puts("  #{i}: #{Automerge.list_get(node, doc_id, ["tags"], i)}")
+end
+```
+
+## Collaborative Text
+
+```elixir
+# Create a text field
+{:ok, _} = Automerge.create_text(node, doc_id, [], "content", "Hello World")
+
+# Read initial text
+text = Automerge.text_get(node, doc_id, ["content"])
+IO.puts("Initial text: #{text}")
+
+# Insert text at position 5 (after "Hello")
+:ok = Automerge.text_insert(node, doc_id, ["content"], 5, " Beautiful")
+
+text = Automerge.text_get(node, doc_id, ["content"])
+IO.puts("After insert: #{text}")
+
+# Delete " Beautiful" (10 characters starting at position 5)
+:ok = Automerge.text_delete(node, doc_id, ["content"], 5, 10)
+
+text = Automerge.text_get(node, doc_id, ["content"])
+IO.puts("After delete: #{text}")
+```
+
+## Distributed Counters
+
+Counters are special CRDT types that always converge correctly, even with concurrent increments.
+
+```elixir
+# Create and increment a counter
+views = Automerge.counter_increment(node, doc_id, [], "views", 1)
+IO.puts("Views after first increment: #{views}")
+
+views = Automerge.counter_increment(node, doc_id, [], "views", 5)
+IO.puts("Views after +5: #{views}")
+
+views = Automerge.counter_increment(node, doc_id, [], "views", -2)
+IO.puts("Views after -2: #{views}")
+
+# Get current value
+current = Automerge.counter_get(node, doc_id, [], "views")
+IO.puts("Current views: #{current}")
+```
+
+## Forking and Merging
+
+This demonstrates simulating concurrent edits.
+
+```elixir
+# Fork the document to create a "branch"
+forked_id = Automerge.fork(node, doc_id)
+IO.puts("Original: #{doc_id}")
+IO.puts("Forked:   #{forked_id}")
+
+# Make changes on the original
+:ok = Automerge.put(node, doc_id, [], "edit_by_alice", "This was added by Alice")
+
+# Make different changes on the fork (simulating another user)
+:ok = Automerge.put(node, forked_id, [], "edit_by_bob", "This was added by Bob")
+
+IO.puts("\nBefore merge:")
+IO.puts("Original has Alice's edit: #{Automerge.get(node, doc_id, [], "edit_by_alice")}")
+IO.puts("Original has Bob's edit: #{inspect(Automerge.get(node, doc_id, [], "edit_by_bob"))}")
+IO.puts("Forked has Alice's edit: #{inspect(Automerge.get(node, forked_id, [], "edit_by_alice"))}")
+IO.puts("Forked has Bob's edit: #{Automerge.get(node, forked_id, [], "edit_by_bob")}")
+
+# Save the fork and merge into original
+{:ok, fork_bytes} = Automerge.save(node, forked_id)
+:ok = Automerge.merge(node, doc_id, fork_bytes)
+
+IO.puts("\nAfter merge:")
+IO.puts("Original has Alice's edit: #{Automerge.get(node, doc_id, [], "edit_by_alice")}")
+IO.puts("Original has Bob's edit: #{Automerge.get(node, doc_id, [], "edit_by_bob")}")
+```
+
+## Document Persistence
+
+```elixir
+# Save document to binary format
+{:ok, saved_bytes} = Automerge.save(node, doc_id)
+IO.puts("Document saved: #{byte_size(saved_bytes)} bytes")
+
+# You could write this to disk:
+# File.write!("my_document.automerge", saved_bytes)
+
+# Load from bytes (creates a new document instance)
+{:ok, loaded_id} = Automerge.load(node, saved_bytes)
+IO.puts("Loaded as new document: #{loaded_id}")
+
+# Verify data was preserved
+IO.puts("Title: #{Automerge.get(node, loaded_id, [], "title")}")
+IO.puts("Author: #{Automerge.get(node, loaded_id, ["author"], "name")}")
+```
+
+## Interactive Document Editor
+
+```elixir
+# Create a simple interactive form for editing documents
+form =
+  Kino.Control.form(
+    [
+      key: Kino.Input.text("Key"),
+      value: Kino.Input.text("Value")
+    ],
+    submit: "Add to Document"
+  )
+
+Kino.render(form)
+
+# Create a frame for displaying document state
+state_frame = Kino.Frame.new()
+Kino.render(state_frame)
+
+# Update display function
+update_display = fn ->
+  json = Automerge.to_json(node, doc_id)
+  Kino.Frame.render(state_frame, Kino.Markdown.new("```json\n#{json}\n```"))
+end
+
+# Initial display
+update_display.()
+
+# Handle form submissions
+Kino.listen(form, fn event ->
+  %{data: %{key: key, value: value}} = event
+
+  if String.length(key) > 0 and String.length(value) > 0 do
+    :ok = Automerge.put(node, doc_id, [], key, value)
+    update_display.()
+    IO.puts("Added: #{key} = #{value}")
+  end
+end)
+```
+
+## Summary
+
+This livebook demonstrated the key features of Automerge CRDT integration:
+
+1. **Documents** - Create, save, load, and fork documents
+2. **Maps** - Nested key-value structures
+3. **Lists** - Ordered sequences with push, insert, and delete
+4. **Text** - Character-level collaborative editing
+5. **Counters** - Distributed counters that always converge
+6. **Merge** - Automatic conflict-free merging of concurrent changes
+
+These primitives enable building real-time collaborative applications where multiple users can edit simultaneously without conflicts.

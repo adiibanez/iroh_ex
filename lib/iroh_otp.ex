@@ -379,7 +379,7 @@ defmodule IrohEx.Node do
   end
 
   @impl true
-  def terminate(reason, %{ log_pid: log_pid, node_ref: node_ref, node_addr: node_addr } = state) do
+  def terminate(reason, %{ log_pid: _log_pid, node_ref: node_ref, node_addr: _node_addr } = _state) do
     Logger.debug("Node terminating: #{inspect(reason)}")
     if node_ref do
       try do

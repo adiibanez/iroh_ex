@@ -6,22 +6,24 @@
 // #![allow(unused_must_use)]
 #![allow(non_local_definitions)]
 // #[cfg(not(clippy))]
-#![feature(mpmc_channel)]
+// #![feature(mpmc_channel)]
 #![allow(clippy::too_many_arguments)]
 
-use iroh::discovery::DiscoveryItem;
-use iroh::endpoint::RemoteInfo;
-use iroh::endpoint::Source;
+use iroh::address_lookup::{dns::DnsAddressLookup, pkarr::PkarrPublisher};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
+use iroh::protocol::AcceptError;
 use iroh::PublicKey;
 use iroh::RelayMap;
 use iroh::RelayMode;
 use iroh::RelayUrl;
-use iroh::endpoint::ConnectionType;
+use n0_future::TryFutureExt;
+use rustler::types::atom::Atom;
 use rustler::NifStruct;
+use rustler::OwnedBinary;
+use rustler::Binary;
 use rustler::{
     Encoder, Env, Error as RustlerError, LocalPid, NifResult, OwnedEnv, ResourceArc, Term,
 };
-use rustler::types::atom::Atom;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
@@ -32,6 +34,7 @@ use rand::Rng;
 use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::env;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use std::fmt;
@@ -40,46 +43,68 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use iroh::{
-    endpoint::Connection,
-    protocol::ProtocolHandler,
-    Endpoint, NodeAddr, NodeId, SecretKey,
+    endpoint::{presets, Connection}, protocol::ProtocolHandler, Endpoint, EndpointAddr, SecretKey,
 };
 
-use rand::rngs::OsRng;
+// NodeId is now just PublicKey in iroh 0.95+
+type NodeId = PublicKey;
 
-use quic_rpc::transport::flume::FlumeConnector;
 
-pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
-    FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,>;
-pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
-    FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,>;
+// use quic_rpc::transport::flume::FlumeConnector;
+
+// pub(crate) type BlobsClient = iroh_blobs::rpc::client::blobs::Client<
+//     FlumeConnector<iroh_blobs::rpc::proto::Response, iroh_blobs::rpc::proto::Request>,>;
+// pub(crate) type DocsClient = iroh_docs::rpc::client::docs::Client<
+//     FlumeConnector<iroh_docs::rpc::proto::Response, iroh_docs::rpc::proto::Request>,>;
 
 use iroh_gossip::{
-    net::{Event, Gossip, GossipEvent, GossipReceiver},
+    api::{Event, GossipReceiver, GossipSender},
+    net::Gossip,
     proto::TopicId,
     ALPN as GossipALPN,
 };
+
+// Blobs imports
+use iroh_blobs::{
+    store::mem::MemStore as BlobMemStore,
+    BlobsProtocol,
+    Hash as BlobHash,
+    ALPN as BlobsALPN,
+};
+
+// Docs imports
+use iroh_docs::{
+    protocol::Docs,
+    AuthorId,
+    NamespaceId,
+    ALPN as DocsALPN,
+};
+
+// Distributed topic tracker for DHT-based auto-discovery
+use distributed_topic_tracker::{
+    AutoDiscoveryGossip, Config as TrackerConfig, RecordPublisher, TopicId as TrackerTopicId,
+};
+use ed25519_dalek::SigningKey;
+
+use iroh::Watcher;
 
 use serde::{Deserialize, Serialize};
 
 use n0_future::boxed::BoxFuture;
 use n0_future::StreamExt;
 
-use rand::distributions::Alphanumeric;
+use rand::distr::Alphanumeric;
 
 mod state;
 mod tokio_runtime;
-mod wrappers;
-mod gossip_actor;
-mod erlang_actor;
-mod actor;
 mod utils;
+mod wrappers;
 
-use crate::state::NodeRef;
-use crate::state::{ErlangMessageEvent, Payload};
 use crate::state::atoms;
-use crate::tokio_runtime::RUNTIME;
+use crate::state::NodeRef;
 use crate::state::NodeState;
+use crate::state::{ErlangMessageEvent, Payload};
+use crate::tokio_runtime::RUNTIME;
 
 // debug dependencies
 // use parking_lot::deadlock;
@@ -91,7 +116,7 @@ const ALPN: &[u8] = b"iroh-example/echo/0";
 static TOPIC_NAME: Lazy<String> = Lazy::new(generate_topic_name);
 
 fn generate_topic_name() -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(20)
         .map(char::from)
@@ -116,9 +141,12 @@ impl Message {
 
 #[rustler::nif]
 pub fn generate_secretkey(env: Env) -> Result<String, RustlerError> {
-    let mut rng = OsRng;
-    let secret_key = SecretKey::generate(&mut rng);
-    Ok(secret_key.to_string())
+    let _ = env;
+    let secret_key = SecretKey::generate();
+
+    let bytes: [u8; 32] = secret_key.to_bytes();
+    let hex_string = hex::encode(bytes);
+    Ok(hex_string)
 }
 
 #[derive(NifStruct)]
@@ -128,14 +156,18 @@ struct NodeConfig {
     active_view_capacity: u32,
     passive_view_capacity: u32,
     relay_urls: Vec<String>,
+    secret_key: String,
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<ResourceArc<NodeRef>, RustlerError> {
+pub fn create_node(
+    env: Env,
+    pid: LocalPid,
+    node_config: NodeConfig,
+) -> Result<ResourceArc<NodeRef>, RustlerError> {
     // let env_pid_clone = env.pid();
     let monitor_pid = pid;
     let topic_name = TOPIC_NAME.to_string();
-
 
     // let relay_url_str = env::var("RELAY_URL").unwrap_or_else(|_| "http://localhost:3340".to_string());
 
@@ -150,45 +182,56 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
     // let relay_map = RelayMap::from_url(relay_url);
 
     let relay_mode = if let Ok(url_str) = env::var("RELAY_URL") {
-        let relay_url = RelayUrl::from_str(&url_str)
-            .expect("Failed to parse RELAY_URL");
-        let relay_map = RelayMap::from_url(relay_url);
+        let relay_url = RelayUrl::from_str(&url_str).expect("Failed to parse RELAY_URL");
+        let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if env::var("RELAY_EU_ONLY").is_ok() {
         let relay_url = RelayUrl::from_str("https://euw1-1.relay.iroh.network./")
             .expect("Failed to parse hardcoded EU relay URL");
-        let relay_map = RelayMap::from_url(relay_url);
+        let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if node_config.relay_urls.len() > 0 {
-        let relay_url = RelayUrl::from_str(&node_config.relay_urls[0])
-            .expect("Failed to parse relay url");
-        let relay_map = RelayMap::from_url(relay_url);
+        let relay_url =
+            RelayUrl::from_str(&node_config.relay_urls[0]).expect("Failed to parse relay url");
+        let relay_map = RelayMap::from(relay_url);
         RelayMode::Custom(relay_map)
     } else if env::var("RELAY_DISABLED").is_ok() {
         RelayMode::Disabled
     } else {
         RelayMode::Default
     };
-    
-    tracing::debug!("RELAY config {:?}", relay_mode);
 
-    let endpoint_builder = Endpoint::builder()
+    tracing::trace!("RELAY config {:?}", relay_mode);
+
+    let mut endpoint_builder = Endpoint::builder(presets::Minimal)
         .relay_mode(relay_mode)
-        .discovery_n0()
-        .discovery_local_network();
+        .address_lookup(PkarrPublisher::n0_dns())
+        .address_lookup(DnsAddressLookup::n0_dns())
+        .address_lookup(MdnsAddressLookup::builder());
 
-    let endpoint_builder = endpoint_builder.discovery_n0();
+    if !node_config.secret_key.is_empty() {
+        let key_bytes = hex::decode(&node_config.secret_key)
+            .map_err(|e| RustlerError::Term(Box::new(format!("Invalid secret_key hex: {}", e))))?;
+        let key_array: [u8; 32] = key_bytes.try_into()
+            .map_err(|_| RustlerError::Term(Box::new("secret_key must be 32 bytes (64 hex chars)".to_string())))?;
+        let secret_key = SecretKey::from_bytes(&key_array);
+        endpoint_builder = endpoint_builder.secret_key(secret_key);
+        tracing::info!("Using provided secret key for node identity persistence");
+    }
 
     let hyparview_config = if node_config.is_whale_node {
         iroh_gossip::proto::HyparviewConfig {
             active_view_capacity: node_config.active_view_capacity as usize,
             passive_view_capacity: node_config.passive_view_capacity as usize,
+            shuffle_interval: Duration::from_secs(5),
             ..Default::default()
         }
     } else {
-        iroh_gossip::proto::HyparviewConfig::default()
+        let mut hc = iroh_gossip::proto::HyparviewConfig::default();
+        hc.shuffle_interval = Duration::from_secs(5);
+        hc
     };
-    
+
     let gossip_builder = Gossip::builder().membership_config(hyparview_config);
 
     let (resource, _monitor_ref) = RUNTIME.block_on(async move {
@@ -201,16 +244,24 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
         let router_builder = iroh::protocol::Router::builder(endpoint.clone());
 
         let gossip = gossip_builder
-            .spawn(endpoint.clone())
+            .spawn(endpoint.clone());
+
+        // Initialize blobs store
+        let blobs_store = BlobMemStore::new();
+        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
+
+        // Initialize docs (requires blobs and gossip)
+        let docs = Docs::memory()
+            .spawn(endpoint.clone(), blobs_store.clone().into(), gossip.clone())
             .await
-            .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {}", e))))?;
+            .map_err(|e| RustlerError::Term(Box::new(format!("Docs error: {}", e))))?;
 
         let router = router_builder
-            .accept(GossipALPN, gossip.clone())
-            .accept(ALPN, Echo)
-            .spawn()
-            .await
-            .map_err(|e| RustlerError::Term(Box::new(format!("Router error: {}", e))))?;
+                            .accept(GossipALPN, gossip.clone())
+                            .accept(BlobsALPN, blobs_protocol)
+                            .accept(DocsALPN, docs.clone())
+                            .accept(ALPN, Echo)
+                            .spawn();
 
         let router_clone = router.clone();
 
@@ -219,12 +270,12 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
             .subscribe(
                 TopicId::from_bytes(utils::string_to_32_byte_array(&topic_name)),
                 node_ids,
-            )
+            ).await.unwrap();
             // .await
-            .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
+            // .map_err(|e| RustlerError::Term(Box::new(format!("Gossip error: {:?}", e))))?;
 
         let (mpsc_event_sender, mpsc_event_receiver) = mpsc::channel::<ErlangMessageEvent>(1000);
-        let (sender, _receiver) = topic.split();
+        let (sender, receiver) = topic.split();
         let mpsc_event_receiver_arc = Arc::new(RwLock::new(mpsc_event_receiver));
 
         let state = NodeState::new(
@@ -233,15 +284,18 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
             router_clone.clone(),
             gossip.clone(),
             sender,
+            receiver,
             mpsc_event_sender,
             mpsc_event_receiver_arc.clone(),
+            Some(blobs_store),
+            Some(docs),
         );
 
         let resource = ResourceArc::new(NodeRef(Arc::new(Mutex::new(state))));
         let monitor_ref = env.monitor(&resource, &monitor_pid);
 
         // Start task inside async
-        let node_addr_short = endpoint.node_id().fmt_short().clone();
+        let node_addr_short = endpoint.id().fmt_short().to_string();
         let handler_pid = monitor_pid;
 
         // let handler_monitor = monitor_ref;
@@ -274,6 +328,8 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
                         1 => (event.atom, terms[0]).encode(env),
                         2 => (event.atom, terms[0], terms[1]).encode(env),
                         3 => (event.atom, terms[0], terms[1], terms[2]).encode(env),
+                        4 => (event.atom, terms[0], terms[1], terms[2], terms[3]).encode(env),
+                        5 => (event.atom, terms[0], terms[1], terms[2], terms[3], terms[4]).encode(env),
                         _ => (event.atom, terms.to_vec()).encode(env),
                     }
                 }) {
@@ -287,7 +343,7 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
                 }
             }
         }));
-        
+
         {
             let mut state = resource.0.lock().unwrap();
             state.erlang_event_handler_task = erlang_event_handler_task;
@@ -333,29 +389,22 @@ pub fn create_node(env: Env, pid: LocalPid, node_config: NodeConfig) -> Result<R
 
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn create_ticket(env: Env, node_ref: ResourceArc<NodeRef>) -> Result<String, RustlerError> {
+    let _ = env;
     println!("Create ticket");
 
     let resource_arc = node_ref.0.clone();
 
-    let endpoint = {
+    let (endpoint, _gossip): (Endpoint, Gossip) = {
         let state = resource_arc.lock().unwrap();
-        state.endpoint.clone()
+        (state.endpoint.clone(), state.gossip.clone())
     };
 
     let topic = TopicId::from_bytes(utils::string_to_32_byte_array(&TOPIC_NAME.to_string()));
 
-    let node_addr = RUNTIME
-        .block_on(endpoint.node_addr())
-        .map_err(|e| RustlerError::Term(Box::new(format!("Node addr error: {}", e))))?;
+    // Get our address information
+    let endpoint_addr = endpoint.addr();
 
-    let ticket = {
-        // Get our address information, includes our
-        // `NodeId`, our `RelayUrl`, and any direct
-        // addresses.
-        let me = node_addr;
-        let nodes = vec![me];
-        Ticket { topic, nodes }
-    };
+    let ticket = Ticket { topic, endpoint_addr };
 
     Ok(ticket.to_string())
 }
@@ -368,10 +417,8 @@ fn gen_node_addr(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
         state.endpoint.clone()
     };
 
-    let node_id = endpoint.node_id();
-
-    // let addr = node.local_peer_id().to_string();
-    Ok(node_id.fmt_short())
+    let node_id = endpoint.id();
+    Ok(node_id.fmt_short().to_string())
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -380,21 +427,32 @@ pub fn send_message(
     node_ref: ResourceArc<NodeRef>,
     message: String,
 ) -> Result<ResourceArc<NodeRef>, RustlerError> {
-    // println!("Message: {:?}", message);
-
+    let _ = env;
     let resource_arc = node_ref.0.clone();
 
-    let (endpoint, gossip, sender ) = {
+    let (endpoint, _gossip, sender, dht_sender) = {
         let state = resource_arc.lock().unwrap();
-        (state.endpoint.clone(), state.gossip.clone(), state.sender.clone())
+        (
+            state.endpoint.clone(),
+            state.gossip.clone(),
+            state.sender.clone(),
+            state.dht_sender.clone(),
+        )
     };
 
     let message = Message::AboutMe {
-        from: endpoint.node_id(),
+        from: endpoint.id(),
         name: message,
     };
 
-    let result = RUNTIME.block_on(sender.broadcast(message.to_vec().into()));
+    // A topic joined via DHT auto-discovery replaces the ticket-based one
+    let result = if let Some(dht_sender) = dht_sender {
+        RUNTIME.block_on(dht_sender.broadcast(message.to_vec()))
+    } else {
+        RUNTIME
+            .block_on(sender.broadcast(message.to_vec().into()))
+            .map_err(anyhow::Error::from)
+    };
     if let Err(e) = result {
         tracing::error!("Failed to send message: {:?}", e);
         return Err(RustlerError::Term(Box::new(e.to_string())));
@@ -437,17 +495,17 @@ async fn connect_node_async_internal(
 ) -> Result<()> {
     let resource_arc = node_ref.0.clone();
 
-    let msg_env = OwnedEnv::new();
+    let _msg_env = OwnedEnv::new();
 
-    let Ticket { topic, nodes } = Ticket::from_str(&ticket).context("❌ Failed to parse ticket")?;
+    let Ticket { topic, endpoint_addr } = Ticket::from_str(&ticket).context("❌ Failed to parse ticket")?;
 
     let (endpoint, gossip, node_id, node_id_short, erlang_sender_clone) = {
         let state = resource_arc.lock().unwrap();
         (
             state.endpoint.clone() as Endpoint,
             state.gossip.clone() as Gossip,
-            state.endpoint.node_id() as PublicKey,
-            state.endpoint.node_id().fmt_short(),
+            state.endpoint.id() as PublicKey,
+            state.endpoint.id().fmt_short().to_string(),
             state.mpsc_event_sender.clone(),
         )
     };
@@ -455,61 +513,56 @@ async fn connect_node_async_internal(
     let endpoint_clone = endpoint.clone();
     let node_ref_clone = node_ref.clone();
 
-    // {
-    //     let mut state = node_ref.0.lock().unwrap(); // Locks the mutex
-    //     let pid = state.pid; // Clone only what is needed
-    //     // Now that state is unlocked, we can create the task safely
-    //     state.discovery_event_handler_task = Some(RUNTIME.spawn(log_discovery_stream(node_ref_clone.clone(), pid)));
-    //     drop(state); // Explicitly drop the lock to avoid Send issues
-    // };
-
-    // Re-lock the state and store the handle safely
-    {
-        let state = node_ref.0.lock().unwrap();
-        // state.discovery_event_handler_task = Some(discovery_task);
-    }
-
     tracing::debug!(
-        "connect_node endpoint_Ptr:{:?} topic: {:?} nodes: {:?}",
+        "connect_node endpoint_Ptr:{:?} topic: {:?} endpoint_addr: {:?}",
         &endpoint as *const _,
         topic,
-        nodes
+        endpoint_addr
     );
 
-    // avoid adding me, myself and I
-    let nodes_filtered: Vec<_> = nodes
-        .iter()
-        .filter(|n| n.node_id != node_id)
-        .filter(|n| n.node_id.fmt_short() != node_id_short)
-        .collect();
+    // Get the remote node_id from the ticket's endpoint_addr
+    let remote_node_id = endpoint_addr.id;
 
-    let node_ids: Vec<_> = nodes_filtered
-        .iter()
-        .map(|p| p.node_id)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-
-    // let node_ids: Vec<_> = nodes.iter().map(|p| p.node_id).collect();
-    if nodes.is_empty() {
-        tracing::debug!("Empty nodes list {:?}", nodes);
+    // Skip if trying to connect to ourselves
+    let node_ids: Vec<PublicKey> = if remote_node_id != node_id {
+        vec![remote_node_id]
     } else {
-        for node in nodes_filtered {
-            tracing::debug!("Adding node to addr book {:?}", node);
-            if let Err(e) = endpoint_clone.add_node_addr(node.clone()) {
-                tracing::error!("❌ Failed to add node to address book: {:?}", e);
-            }
-        }
-    }
+        tracing::debug!("Skipping self-connection");
+        vec![]
+    };
 
-    let relay_url: RelayUrl = endpoint_clone.home_relay().initialized().await.unwrap();
+    // let home_relay_watcher = endpoint_clone.home_relay();
+
+    // tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // RUNTIME.block_on(async {
+    //     tokio::time::sleep(Duration::from_millis(10)).await;
+    // });
+
+    /*let home_relay = RUNTIME
+            .block_on(home_relay_watcher.clone().initialized())
+            .map_err(|e| RustlerError::Term(Box::new(format!("Home relay error: {}", e))));
+
+        tracing::debug!("Home relay {:?}", home_relay);
+    */
+    /*match home_relay_watcher.initialized().await {
+        Ok(home_relay) => tracing::debug!("Homerelay: Ok {:?}", home_relay),
+        Err(error) => tracing::error!("Homerelay: NOK {:?}", error)
+    }*/
+
+    // let relay_url_test: RelayUrl = endpoint_clone.home_relay().initialized().await?;
+    // let relay_url = String::from_str("test").unwrap();
+
+    // let relay_url = endpoint_clone.home_relay().initialized().await?;
+    // let relay_url = endpoint_clone.home_relay().get().iter();
+
+    // tracing::debug!("Watcher RelayUrl: {:?}", relay_url);
 
     if let Err(e) = erlang_sender_clone
         .send(ErlangMessageEvent {
             atom: atoms::iroh_node_connected(),
             payload: Payload::List(vec![
-                Payload::String(node_id.fmt_short()),
-                Payload::String(relay_url.as_str().to_string()),
+                Payload::String(node_id.fmt_short().to_string()),
             ]),
         })
         .await
@@ -520,11 +573,42 @@ async fn connect_node_async_internal(
         );
     }
 
+    // if let Err(e) = erlang_sender_clone
+    //     .send(ErlangMessageEvent {
+    //         atom: atoms::iroh_node_test(),
+    //         payload: Payload::List(vec![
+    //             Payload::String("Outer msg".to_string()),
+    //             // Payload::String(relay_url.as_str().to_string()),
+    //         ]),
+    //     })
+    //     .await
+    // {
+    //     tracing::warn!(
+    //         "❌ GossipEvent::Joined Failed to send erlang message: {:?}",
+    //         e
+    //     );
+    // }
+
     let pid_clone = pid;
 
     let erlang_sender_clone_inner = erlang_sender_clone.clone();
-
     let event_handler_task = Some(RUNTIME.spawn(async move {
+
+        // if let Err(e) = erlang_sender_clone_inner
+        //     .send(ErlangMessageEvent {
+        //         atom: atoms::iroh_node_test(),
+        //         payload: Payload::List(vec![
+        //             Payload::String("Inner msg".to_string()),
+        //             // Payload::String(relay_url.as_str().to_string()),
+        //         ]),
+        //     })
+        //     .await
+        // {
+        //     tracing::warn!(
+        //         "❌ GossipEvent::Joined Failed to send erlang message: {:?}",
+        //         e
+        //     );
+        // }
 
         let topic = gossip
             .subscribe_and_join(topic, node_ids)
@@ -534,93 +618,66 @@ async fn connect_node_async_internal(
 
         tracing::debug!("Subscribed to: {:?}", topic);
 
-        let (sender, mut receiver) = topic.split();
-
         let pid_clone = pid;
-        let erlang_sender_clone = erlang_sender_clone.clone();
+        // let erlang_sender_clone = erlang_sender_clone.clone();
         let node_id_short_clone = node_id_short.clone();
 
-        
+        let (sender, mut receiver): (GossipSender, GossipReceiver) = topic.split();
+
+        {
+            let mut state = node_ref_clone.0.lock().unwrap();
+            state.sender = sender.clone();
+        }
+
+        /*// ⬇️ Debug, Keep sender alive!
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(600)).await;
+            }
+        });*/
+
         while let Some(event) = receiver.next().await {
             match event {
                 Ok(event) => {
-        
+                    // tracing::debug!("Event {:?}", event);
+
                     match event {
-                        Event::Gossip(GossipEvent::Joined(pub_keys)) => {
-                            tracing::debug!("Joined {:?} {:?}", node_id_short_clone, pub_keys);
 
-                            if erlang_sender_clone.is_closed() {
-                                tracing::error!("❌ GossipEvent::Joined: erlang_sender_clone is closed");
-                                continue;
-                            }
+                        Event::NeighborUp(pub_key) => {
 
-                            let event = ErlangMessageEvent {
-                                atom: atoms::iroh_gossip_joined(),
-                                payload: Payload::List(vec![
-                                    Payload::String(pub_keys
-                                        .iter()
-                                        .map(|pk| pk.fmt_short())
-                                        .collect::<Vec<_>>()
-                                        .join(",")),
-                                ]),
-                            };
+                            use n0_future::StreamExt;
 
-                            match erlang_sender_clone.send(event).await {
-                                Ok(_) => {
-                                    tracing::debug!("✅ Joined event sent successfully");
-                                }
-                                Err(e) => {
-                                    tracing::error!("❌ GossipEvent::Joined Failed to send erlang message: {:?}", e);
-                                }
-                            }
-                        }
+                            // let neighbor_count = receiver.neighbors().count();
+                            let neighbor_count = receiver.neighbors().count();
 
-                        Event::Gossip(GossipEvent::NeighborUp(pub_key)) => {
-                            tracing::debug!("NeighborUp {:?}", pub_key);
+                            // tracing::debug!("NeighborUp {:?} {:?}", pub_key, neighbor_count);
 
-                            if erlang_sender_clone.is_closed() {
+                            if erlang_sender_clone_inner.is_closed() {
                                 tracing::error!("❌ GossipEvent::NeighborUp: erlang_sender_clone is closed");
                                 continue;
                             }
 
-                            let remote_pubkey_opt = receiver
-                                .neighbors()
-                                .find(|n| n.fmt_short() != node_id_short_clone);
+                            let event = ErlangMessageEvent {
+                                atom: atoms::iroh_gossip_neighbor_up(),
+                                payload: Payload::List(vec![
+                                    Payload::String(node_id_short_clone.clone()),
+                                    Payload::String(pub_key.fmt_short().to_string()),
+                                    Payload::Integer(neighbor_count as i64),
+                                ]),
+                            };
 
-                            if let Some(remote_pubkey) = remote_pubkey_opt {
-                                let remote_info_string = if let Some(remote_info) = endpoint_clone
-                                    .remote_info_iter()
-                                    .find(|r| r.node_id != remote_pubkey)
-                                {
-                                    Payload::from_map(remote_info_to_map(&remote_info))
-                                } else {
-                                    Payload::Map(vec![])
-                                };
-
-                                let event = ErlangMessageEvent {
-                                    atom: atoms::iroh_gossip_neighbor_up(),
-                                    payload: Payload::List(vec![
-                                        Payload::String(node_id_short_clone.clone()),
-                                        Payload::String(pub_key.clone().fmt_short()),
-                                        remote_info_string,
-                                    ]),
-                                };
-
-                                match erlang_sender_clone.send(event).await {
-                                    Ok(_) => {
-                                        tracing::debug!("✅ NeighborUp event sent successfully");
-                                    }
-                                    Err(e) => {
-                                        tracing::error!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
-                                    }
+                            match erlang_sender_clone_inner.send(event).await {
+                                Ok(_) => {
+                                    tracing::trace!("✅ NeighborUp event sent successfully");
+                                }
+                                Err(e) => {
+                                    tracing::error!("❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}", e);
                                 }
                             }
                         }
 
-                        Event::Gossip(GossipEvent::NeighborDown(pub_key)) => {
-                            tracing::debug!("NeighborDown {:?}", pub_key);
-
-                            if erlang_sender_clone.is_closed() {
+                        Event::NeighborDown(pub_key) => {
+                            if erlang_sender_clone_inner.is_closed() {
                                 tracing::error!("❌ GossipEvent::NeighborDown: erlang_sender_clone is closed");
                                 continue;
                             }
@@ -629,13 +686,13 @@ async fn connect_node_async_internal(
                                 atom: atoms::iroh_gossip_neighbor_down(),
                                 payload: Payload::List(vec![
                                     Payload::String(node_id_short_clone.clone()),
-                                    Payload::String(pub_key.clone().fmt_short()),
+                                    Payload::String(pub_key.fmt_short().to_string()),
                                 ]),
                             };
 
-                            match erlang_sender_clone.send(event).await {
+                            match erlang_sender_clone_inner.send(event).await {
                                 Ok(_) => {
-                                    tracing::debug!("✅ NeighborDown event sent successfully");
+                                    tracing::trace!("✅ NeighborDown event sent successfully");
                                 }
                                 Err(e) => {
                                     tracing::error!("❌ GossipEvent::NeighborDown Failed to send erlang message: {:?}", e);
@@ -643,10 +700,10 @@ async fn connect_node_async_internal(
                             }
                         }
 
-                        Event::Gossip(GossipEvent::Received(msg)) => {
-                            tracing::debug!("Received message: {:?}", msg);
+                        Event::Received(msg) => {
+                            // tracing::debug!("Received message: {:?}", msg);
 
-                            if erlang_sender_clone.is_closed() {
+                            if erlang_sender_clone_inner.is_closed() {
                                 tracing::error!("❌ GossipEvent::Received: erlang_sender_clone is closed");
                                 continue;
                             }
@@ -664,7 +721,7 @@ async fn connect_node_async_internal(
                                             ]),
                                         };
 
-                                        match erlang_sender_clone.send(event).await {
+                                        match erlang_sender_clone_inner.send(event).await {
                                             Ok(_) => {
                                                 tracing::debug!("✅ Message received event sent successfully");
                                             }
@@ -686,7 +743,7 @@ async fn connect_node_async_internal(
                             tracing::debug!("🔍 Ignored unhandled event: {:?}", unhandled_event);
                             let message = format!("🔍 Ignored unhandled event: {:?}", unhandled_event);
 
-                            if let Err(e) = erlang_sender_clone
+                            if let Err(e) = erlang_sender_clone_inner
                                 .send(ErlangMessageEvent {
                                     atom: atoms::iroh_gossip_message_unhandled(),
                                     payload: Payload::List(vec![
@@ -714,60 +771,24 @@ async fn connect_node_async_internal(
         state.event_handler_task = event_handler_task;
     }
 
+    // {
+    //     let state = node_ref.0.lock().unwrap();
+    //     tracing::debug!("Event_handler {:?}", state.event_handler_task);
+    // }
+
     Ok(())
 }
 
-
 use std::collections::HashMap;
-
-fn remote_info_to_map(info: &RemoteInfo) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-
-    map.insert("node_id".to_string(), format!("{}", info.node_id));
-
-    // if let Some(relay) = &info.relay_url {
-    //     map.insert("relay_url".to_string(), relay.relay_url.to_string());
-    // }
-
-    if let Some(latency) = info.latency {
-        map.insert("latency".to_string(), format!("{:?}", latency));
-    }
-
-    if let Some(last_used) = info.last_used {
-        map.insert("last_used".to_string(), format!("{:?}", last_used));
-    }
-
-    match &info.conn_type {
-        ConnectionType::Direct(addr) => {
-            map.insert("conn_type".to_string(), "Direct".to_string());
-            // map.insert("conn_addr".to_string(), addr.to_string());
-        }
-        ConnectionType::Relay(url) => {
-            map.insert("conn_type".to_string(), "Relay".to_string());
-            map.insert("relay_conn_url".to_string(), url.to_string());
-        }
-        ConnectionType::Mixed(addr, url) => {
-            map.insert("conn_type".to_string(), "Mixed".to_string());
-            // map.insert("conn_addr".to_string(), addr.to_string());
-            map.insert("relay_conn_url".to_string(), url.to_string());
-        }
-        ConnectionType::None => {
-            map.insert("conn_type".to_string(), "None".to_string());
-        }
-    }
-
-    // addrs intentionally skipped
-
-    map
-}
-
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
     let node = node_ref.0.clone();
 
     let endpoint = {
-        let state = node_ref.0.lock().unwrap();
+        let mut state = node_ref.0.lock().unwrap();
+        // Dropping the sender releases the tracker topic keep-alive and stops DHT publishing
+        state.dht_sender = None;
         state.endpoint.clone() as Endpoint
     };
 
@@ -782,38 +803,25 @@ fn disconnect_node(node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn list_peers(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
-    let node = node_ref.0.clone();
+    let _node = node_ref.0.clone();
 
     let endpoint = {
         let state = node_ref.0.lock().unwrap();
         state.endpoint.clone() as Endpoint
     };
 
-    let remote_info_vec: Vec<RemoteInfo> = endpoint
-                    .remote_info_iter()
-                    // .filter(|n| n.node_id != node_addr.node_id)
-                    .collect::<Vec<_>>();
+    // In iroh 0.95+, remote_info_iter was removed
+    // We return the endpoint's own id as a placeholder
+    // In practice, peer tracking should be done via gossip neighbors
+    let peers: Vec<String> = vec![
+        format!("self:{}", endpoint.id().fmt_short())
+    ];
 
-    for info in &remote_info_vec {
-        tracing::info!("{}", format_remote_info(info));
-    }
-    
-    //let peers: Vec<_> = vec![]; 
-    let peers: Vec<_> = remote_info_vec.iter().map(|ri| {
-        let latency_str = match ri.latency {
-            Some(latency) => format!("{:?}", latency),
-            None => "N/A".to_string(),
-        };
-        format!("node_id:{:?},conn_type:{:?},latency:{}", ri.node_id.fmt_short(), ri.conn_type, latency_str)
-    }).collect();
     Ok(peers)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn cleanup(
-    env: Env,
-    node_ref: ResourceArc<NodeRef>,
-) -> NifResult<()> {
+pub fn cleanup(env: Env, node_ref: ResourceArc<NodeRef>) -> NifResult<()> {
     // Get the monitor ref before dropping
     let monitor_ref = {
         let state = node_ref.0.lock().unwrap();
@@ -841,14 +849,18 @@ pub fn cleanup(
 struct Echo;
 
 impl ProtocolHandler for Echo {
-    fn accept(&self, connection: Connection) -> BoxFuture<Result<()>> {
+    fn accept(
+        &self,
+        connection: Connection,
+    ) -> impl Future<Output = Result<(), AcceptError>> + Send {
         Box::pin(async move {
-            let (mut send, mut recv) = connection.accept_bi().await?;
+            let (mut send, mut recv) = connection.accept_bi().await.map_err(AcceptError::from)?;
 
-            // Echo any bytes received back directly.
-            let bytes_sent = tokio::io::copy(&mut recv, &mut send).await?;
+            let _bytes_sent = tokio::io::copy(&mut recv, &mut send)
+                .await
+                .map_err(AcceptError::from)?;
 
-            send.finish()?;
+            send.finish().map_err(AcceptError::from)?;
             connection.closed().await;
 
             Ok(())
@@ -856,125 +868,613 @@ impl ProtocolHandler for Echo {
     }
 }
 
-// async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
-async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
-    let (endpoint, erlang_sender_clone, mut stream) = {
-        let state = node_ref.0.lock().unwrap(); // Acquire lock
+// ============================================================================
+// BLOB NIF FUNCTIONS
+// ============================================================================
+
+/// Add a blob from binary data, returns the hash as hex string
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn blob_add(node_ref: ResourceArc<NodeRef>, data: Binary) -> NifResult<String> {
+    let blobs_store = {
+        let state = node_ref.0.lock().unwrap();
+        state.blobs_store.clone()
+    };
+
+    let blobs_store = blobs_store.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Blobs store not initialized"))
+    })?;
+
+    let hash = RUNTIME.block_on(async {
+        let tag_info = blobs_store.add_slice(data.as_slice()).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Blob add error: {}", e))))?;
+        Ok::<_, rustler::Error>(tag_info.hash.to_string())
+    })?;
+
+    Ok(hash)
+}
+
+/// Get a blob by hash, returns the binary data
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn blob_get<'a>(env: Env<'a>, node_ref: ResourceArc<NodeRef>, hash_str: String) -> NifResult<Binary<'a>> {
+    let blobs_store = {
+        let state = node_ref.0.lock().unwrap();
+        state.blobs_store.clone()
+    };
+
+    let blobs_store = blobs_store.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Blobs store not initialized"))
+    })?;
+
+    let hash = hash_str.parse::<BlobHash>()
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Invalid hash: {}", e))))?;
+
+    let data = RUNTIME.block_on(async {
+        let bytes = blobs_store.get_bytes(hash).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Blob get error: {}", e))))?;
+
+        Ok::<_, rustler::Error>(bytes.to_vec())
+    })?;
+
+    let mut binary = OwnedBinary::new(data.len()).unwrap();
+    binary.as_mut_slice().copy_from_slice(&data);
+    Ok(binary.release(env))
+}
+
+/// List all blob hashes in the store
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn blob_list(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
+    let blobs_store = {
+        let state = node_ref.0.lock().unwrap();
+        state.blobs_store.clone()
+    };
+
+    let blobs_store = blobs_store.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Blobs store not initialized"))
+    })?;
+
+    let hashes = RUNTIME.block_on(async {
+        let progress = blobs_store.list();
+        let hash_list = progress.hashes().await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("List error: {}", e))))?;
+        Ok::<_, rustler::Error>(hash_list.into_iter().map(|h| h.to_string()).collect())
+    })?;
+
+    Ok(hashes)
+}
+
+// ============================================================================
+// DOCS NIF FUNCTIONS
+// ============================================================================
+
+/// Create a new author for documents
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn docs_create_author(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
+    let docs = {
+        let state = node_ref.0.lock().unwrap();
+        state.docs.clone()
+    };
+
+    let docs = docs.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Docs not initialized"))
+    })?;
+
+    let author_id = RUNTIME.block_on(async {
+        let author = docs.author_create().await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Create author error: {}", e))))?;
+        Ok::<_, rustler::Error>(author.to_string())
+    })?;
+
+    Ok(author_id)
+}
+
+/// Create a new document, returns namespace_id
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn docs_create(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
+    let docs = {
+        let state = node_ref.0.lock().unwrap();
+        state.docs.clone()
+    };
+
+    let docs = docs.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Docs not initialized"))
+    })?;
+
+    let namespace_id = RUNTIME.block_on(async {
+        let doc = docs.create().await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Create doc error: {}", e))))?;
+        Ok::<_, rustler::Error>(doc.id().to_string())
+    })?;
+
+    Ok(namespace_id)
+}
+
+/// Set an entry in a document
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn docs_set_entry(
+    node_ref: ResourceArc<NodeRef>,
+    namespace_id_str: String,
+    author_id_str: String,
+    key: String,
+    value: Binary,
+) -> NifResult<String> {
+    let docs = {
+        let state = node_ref.0.lock().unwrap();
+        state.docs.clone()
+    };
+
+    let docs = docs.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Docs not initialized"))
+    })?;
+
+    let namespace_id = namespace_id_str.parse::<NamespaceId>()
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Invalid namespace: {}", e))))?;
+
+    let author_id = author_id_str.parse::<AuthorId>()
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Invalid author: {}", e))))?;
+
+    let hash = RUNTIME.block_on(async {
+        let doc = docs.open(namespace_id).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Open doc error: {}", e))))?
+            .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+        let hash = doc.set_bytes(author_id, key.as_bytes().to_vec(), value.as_slice().to_vec()).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Set entry error: {}", e))))?;
+
+        Ok::<_, rustler::Error>(hash.to_string())
+    })?;
+
+    Ok(hash)
+}
+
+/// Get an entry from a document - returns content hash (use blob_get to retrieve content)
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn docs_get_entry(
+    node_ref: ResourceArc<NodeRef>,
+    namespace_id_str: String,
+    author_id_str: String,
+    key: String,
+) -> NifResult<String> {
+    let (docs, blobs_store) = {
+        let state = node_ref.0.lock().unwrap();
+        (state.docs.clone(), state.blobs_store.clone())
+    };
+
+    let docs = docs.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Docs not initialized"))
+    })?;
+
+    let blobs_store = blobs_store.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Blobs store not initialized"))
+    })?;
+
+    let namespace_id = namespace_id_str.parse::<NamespaceId>()
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Invalid namespace: {}", e))))?;
+
+    let author_id = author_id_str.parse::<AuthorId>()
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Invalid author: {}", e))))?;
+
+    let content_hash = RUNTIME.block_on(async {
+        let doc = docs.open(namespace_id).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Open doc error: {}", e))))?
+            .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+        let entry = doc.get_exact(author_id, key.as_bytes(), false).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Get entry error: {}", e))))?
+            .ok_or_else(|| rustler::Error::Term(Box::new("Entry not found")))?;
+
+        Ok::<_, rustler::Error>(entry.content_hash().to_string())
+    })?;
+
+    Ok(content_hash)
+}
+
+/// Get an entry value directly from a document
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn docs_get_entry_value<'a>(
+    env: Env<'a>,
+    node_ref: ResourceArc<NodeRef>,
+    namespace_id_str: String,
+    author_id_str: String,
+    key: String,
+) -> NifResult<Binary<'a>> {
+    let (docs, blobs_store) = {
+        let state = node_ref.0.lock().unwrap();
+        (state.docs.clone(), state.blobs_store.clone())
+    };
+
+    let docs = docs.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Docs not initialized"))
+    })?;
+
+    let blobs_store = blobs_store.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Blobs store not initialized"))
+    })?;
+
+    let namespace_id = namespace_id_str.parse::<NamespaceId>()
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Invalid namespace: {}", e))))?;
+
+    let author_id = author_id_str.parse::<AuthorId>()
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Invalid author: {}", e))))?;
+
+    let data = RUNTIME.block_on(async {
+        let doc = docs.open(namespace_id).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Open doc error: {}", e))))?
+            .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+        let entry = doc.get_exact(author_id, key.as_bytes(), false).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Get entry error: {}", e))))?
+            .ok_or_else(|| rustler::Error::Term(Box::new("Entry not found")))?;
+
+        // Get content via blobs store using the content hash
+        let content_hash: BlobHash = entry.content_hash().into();
+        let bytes = blobs_store.get_bytes(content_hash).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Get content error: {}", e))))?;
+
+        Ok::<_, rustler::Error>(bytes.to_vec())
+    })?;
+
+    let mut binary = OwnedBinary::new(data.len()).unwrap();
+    binary.as_mut_slice().copy_from_slice(&data);
+    Ok(binary.release(env))
+}
+
+/// List all documents
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn docs_list(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
+    let docs = {
+        let state = node_ref.0.lock().unwrap();
+        state.docs.clone()
+    };
+
+    let docs = docs.ok_or_else(|| {
+        rustler::Error::Term(Box::new("Docs not initialized"))
+    })?;
+
+    let namespaces = RUNTIME.block_on(async {
+        let mut namespaces = Vec::new();
+        // docs.list() returns a Future that resolves to a Stream
+        let mut stream = docs.list().await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("List error: {}", e))))?;
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok((namespace, _)) => namespaces.push(namespace.to_string()),
+                Err(e) => tracing::warn!("Error listing doc: {}", e),
+            }
+        }
+        Ok::<_, rustler::Error>(namespaces)
+    })?;
+
+    Ok(namespaces)
+}
+
+// ============================================================================
+// DHT AUTO-DISCOVERY FUNCTIONS
+// ============================================================================
+/// Subscribe to a topic with DHT-based auto-discovery
+/// This allows nodes to find each other without exchanging tickets
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn subscribe_with_auto_discovery(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    topic_name: String,
+    secret_seed: Option<String>,
+) -> Result<ResourceArc<NodeRef>, RustlerError> {
+    let node_ref_clone = node_ref.clone();
+    let pid = env.pid();
+
+    RUNTIME.spawn(async move {
+        if let Err(e) =
+            subscribe_with_auto_discovery_internal(node_ref_clone, pid, topic_name, secret_seed)
+                .await
+        {
+            tracing::error!("❌ Error in auto-discovery subscription: {:?}", e);
+        }
+    });
+
+    Ok(node_ref)
+}
+
+async fn subscribe_with_auto_discovery_internal(
+    node_ref: ResourceArc<NodeRef>,
+    _pid: LocalPid,
+    topic_name: String,
+    secret_seed: Option<String>,
+) -> Result<()> {
+    let resource_arc = node_ref.0.clone();
+
+    let (endpoint, gossip, node_id_short, erlang_sender_clone) = {
+        let state = resource_arc.lock().unwrap();
         (
             state.endpoint.clone() as Endpoint,
-            state.mpsc_event_sender.clone() as tokio::sync::mpsc::Sender<ErlangMessageEvent>,
-            state.endpoint.discovery_stream(), // as Stream<Item = Result<DiscoveryItem, Lagged>>
+            state.gossip.clone() as Gossip,
+            state.endpoint.id().fmt_short().to_string(),
+            state.mpsc_event_sender.clone(),
         )
     };
 
-    // let endpoint = state_clone.endpoint.clone();
-    // let erlang_sender_clone = state_clone.mpsc_event_sender.clone();
+    // Topic id is derived from the topic name (hashed internally)
+    let tracker_topic = TrackerTopicId::new(topic_name.clone());
 
-    // let mut stream = endpoint.discovery_stream();
-    let msg_env = OwnedEnv::new();
+    // Sign DHT records with the node's own ed25519 key
+    let signing_key = SigningKey::from_bytes(&endpoint.secret_key().to_bytes());
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(discovery_item) => {
+    // The initial secret encrypts DHT records: all peers of a topic must share it
+    let initial_secret: Vec<u8> = if let Some(seed) = secret_seed {
+        let mut bytes = seed.as_bytes().to_vec();
+        bytes.resize(32, 0);
+        bytes
+    } else {
+        // No shared secret given: derive it from the topic name so that
+        // independent nodes subscribing to the same topic can still find each other
+        let mut bytes = topic_name.as_bytes().to_vec();
+        bytes.resize(32, 0);
+        bytes
+    };
 
-                let node_addr: NodeAddr = (discovery_item as DiscoveryItem).into_node_addr();
+    let record_publisher = RecordPublisher::new(
+        tracker_topic,
+        signing_key,
+        None, // default secret rotation
+        initial_secret,
+        TrackerConfig::default(),
+    );
 
-                // let remote_info: RemoteInfo = endpoint.remote_info_iter()
-                //     .into(Vec)
-                //     // .find(|n| n.node_id == node_addr.node_id)
-                //     .expect("Expected at least one RemoteInfo");
+    tracing::info!(
+        "📡 Subscribing to topic '{}' with DHT auto-discovery, node: {}",
+        topic_name,
+        node_id_short
+    );
 
-                let remote_info_vec: Vec<RemoteInfo> = endpoint
-                    .remote_info_iter()
-                    .filter(|n| n.node_id != node_addr.node_id)
-                    .collect::<Vec<_>>();
+    // The no_wait variant returns before the join completes: the receiver is a
+    // broadcast channel that drops events sent before split(), so we must be
+    // subscribed before the first NeighborUp arrives
+    let topic = gossip
+        .subscribe_and_join_with_auto_discovery_no_wait(record_publisher)
+        .await
+        .context("❌ Failed to subscribe with auto-discovery")?;
 
-                for info in &remote_info_vec {
-                    tracing::info!("{}", format_remote_info(info));
+    tracing::info!("✅ Successfully subscribed to topic with auto-discovery");
+
+    let (dht_sender, mut dht_receiver) = topic
+        .split()
+        .await
+        .context("❌ Failed to split topic into sender/receiver")?;
+
+    // The dht_sender keeps the tracker topic alive and lets send_message
+    // broadcast on the auto-discovered topic
+    {
+        let mut state = node_ref.0.lock().unwrap();
+        state.dht_sender = Some(dht_sender);
+    }
+
+    // Notify Elixir once the topic is actually joined (first neighbor or message)
+    {
+        let mut join_waiter = dht_receiver.clone();
+        let joined_sender = erlang_sender_clone.clone();
+        let joined_node = node_id_short.clone();
+        let joined_topic = topic_name.clone();
+        RUNTIME.spawn(async move {
+            match join_waiter.joined().await {
+                Ok(()) => {
+                    tracing::info!("✅ Auto-discovery topic '{}' joined", joined_topic);
+                    if let Err(e) = joined_sender
+                        .send(ErlangMessageEvent {
+                            atom: atoms::iroh_gossip_joined(),
+                            payload: Payload::List(vec![
+                                Payload::String(joined_node),
+                                Payload::String(joined_topic),
+                                Payload::String("auto_discovery".to_string()),
+                            ]),
+                        })
+                        .await
+                    {
+                        tracing::warn!(
+                            "❌ Failed to send auto-discovery joined notification: {:?}",
+                            e
+                        );
+                    }
                 }
-
-                // tracing::info!(
-                //     "🔍 {:?} Discovered Node: {:?}",
-                //     endpoint.node_id().fmt_short(),
-                //     node_addr,
-                //     // remote_info_vec
-                //     //     .iter()
-                //     //     .map(|info| format!("{:?}", info)) // or use `to_string()` if `Display` is implemented
-                //     //     .collect::<Vec<_>>()
-                //     //     .join("\n\n")
-                // );
-
-                // if let Err(e) = erlang_sender_clone
-                //     .send(ErlangMessageEvent {
-                //         atom: atoms::iroh_gossip_node_discovered(),
-                //         payload: vec![
-                //             endpoint.node_id().fmt_short(),
-                //             node_addr.node_id.fmt_short(),
-                //             format!("{:?}", remote_info.latency)
-                //         ],
-                //     })
-                //     .await
-                // {
-                //     tracing::warn!(
-                //         "❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}",
-                //         e
-                //     );
-                // }
+                Err(e) => {
+                    tracing::warn!("❌ Auto-discovery join wait ended: {:?}", e);
+                }
             }
-            Err(lagged) => {
-                tracing::warn!(
-                    "🚨 {:?} Discovery stream lagged! Some items may have been lost.{:?}",
-                    endpoint.node_id().fmt_short(),
-                    lagged
-                );
+        });
+    }
+
+    let erlang_sender_inner = erlang_sender_clone.clone();
+    let node_id_short_clone = node_id_short.clone();
+
+    let event_handler_task = Some(RUNTIME.spawn(async move {
+        loop {
+            match dht_receiver.next().await {
+                Ok(event) => {
+                    match event {
+                        Event::NeighborUp(pub_key) => {
+                            let neighbor_count = dht_receiver
+                                .neighbors()
+                                .await
+                                .map(|n| n.len())
+                                .unwrap_or(0);
+
+                            if erlang_sender_inner.is_closed() {
+                                tracing::error!("❌ GossipEvent::NeighborUp: erlang_sender is closed");
+                                continue;
+                            }
+
+                            let event = ErlangMessageEvent {
+                                atom: atoms::iroh_gossip_neighbor_up(),
+                                payload: Payload::List(vec![
+                                    Payload::String(node_id_short_clone.clone()),
+                                    Payload::String(pub_key.fmt_short().to_string()),
+                                    Payload::Integer(neighbor_count as i64),
+                                ]),
+                            };
+
+                            if let Err(e) = erlang_sender_inner.send(event).await {
+                                tracing::error!("❌ Failed to send NeighborUp event: {:?}", e);
+                            }
+                        }
+
+                        Event::NeighborDown(pub_key) => {
+                            if erlang_sender_inner.is_closed() {
+                                continue;
+                            }
+
+                            let event = ErlangMessageEvent {
+                                atom: atoms::iroh_gossip_neighbor_down(),
+                                payload: Payload::List(vec![
+                                    Payload::String(node_id_short_clone.clone()),
+                                    Payload::String(pub_key.fmt_short().to_string()),
+                                ]),
+                            };
+
+                            if let Err(e) = erlang_sender_inner.send(event).await {
+                                tracing::error!("❌ Failed to send NeighborDown event: {:?}", e);
+                            }
+                        }
+
+                        Event::Received(msg) => {
+                            if erlang_sender_inner.is_closed() {
+                                continue;
+                            }
+
+                            match Message::from_bytes(&msg.content) {
+                                Ok(message) => match message {
+                                    Message::AboutMe { from, name } => {
+                                        tracing::debug!("FROM: {} MSG: {}", from.fmt_short(), name);
+
+                                        let event = ErlangMessageEvent {
+                                            atom: atoms::iroh_gossip_message_received(),
+                                            payload: Payload::List(vec![
+                                                Payload::String(node_id_short_clone.clone()),
+                                                Payload::String(name.clone()),
+                                            ]),
+                                        };
+
+                                        if let Err(e) = erlang_sender_inner.send(event).await {
+                                            tracing::error!("❌ Failed to send message event: {:?}", e);
+                                        }
+                                    }
+                                    Message::Message { from, text } => {
+                                        tracing::debug!("📝 {}: {}", from, text);
+                                    }
+                                },
+                                Err(e) => {
+                                    tracing::warn!("❌ Failed to parse message: {:?}", e);
+                                }
+                            }
+                        }
+
+                        unhandled_event => {
+                            tracing::debug!("🔍 Ignored unhandled event: {:?}", unhandled_event);
+                        }
+                    }
+                }
+                Err(e) => {
+                    // ChannelError is not exported by distributed-topic-tracker,
+                    // so distinguish lagged (recoverable) from closed via Display
+                    let msg = e.to_string();
+                    if msg.contains("lagged") {
+                        tracing::warn!("🚨 DHT gossip receiver lagged: {}", msg);
+                        continue;
+                    }
+                    tracing::error!("❌ DHT gossip receiver closed: {}", msg);
+                    break;
+                }
             }
         }
+    }));
+
+    {
+        let mut state = node_ref.0.lock().unwrap();
+        state.event_handler_task = event_handler_task;
     }
+
+    Ok(())
 }
 
+// // async fn log_discovery_stream(endpoint: Endpoint, pid: LocalPid) {
+// async fn log_discovery_stream(node_ref: ResourceArc<NodeRef>, pid: LocalPid) {
+//     let (endpoint, erlang_sender_clone, mut stream) = {
+//         let state = node_ref.0.lock().unwrap(); // Acquire lock
+//         (
+//             state.endpoint.clone() as Endpoint,
+//             state.mpsc_event_sender.clone() as tokio::sync::mpsc::Sender<ErlangMessageEvent>,
+//             state.endpoint.discovery_stream(), // as Stream<Item = Result<DiscoveryItem, Lagged>>
+//         )
+//     };
 
-fn format_remote_info(info: &RemoteInfo) -> String {
-    let mut out = String::new();
+//     // let endpoint = state_clone.endpoint.clone();
+//     // let erlang_sender_clone = state_clone.mpsc_event_sender.clone();
 
-    use std::fmt::Write;
+//     // let mut stream = endpoint.discovery_stream();
+//     let msg_env = OwnedEnv::new();
 
-    writeln!(out, "🧩 Node: {}", info.node_id.fmt_short()).ok();
-    writeln!(out, "  Relay: {}", info.relay_url.as_ref().map(|r| r.relay_url.to_string()).unwrap_or("None".into())).ok();
-    let _ = writeln!(out, "  Conn Type: {:?}", info.conn_type);
-    let _ = writeln!(out, "  Latency: {:?}", info.latency);
-    let _ = writeln!(out, "  Addresses:");
+//     while let Some(result) = stream.next().await {
+//         match result {
+//             Ok(discovery_item) => {
+//                 let node_addr: NodeAddr = (discovery_item as DiscoveryItem).into_node_addr();
 
-    for addr in &info.addrs {
-        writeln!(out, "    - {}", addr.addr).ok();
-        if let Some(lat) = addr.latency {
-            writeln!(out, "      ↳ Latency: {:?}", lat).ok();
-        } else {
-            writeln!(out, "      ↳ Latency: N/A").ok();
-        }
+//                 // let remote_info: RemoteInfo = endpoint.remote_info_iter()
+//                 //     .into(Vec)
+//                 //     // .find(|n| n.node_id == node_addr.node_id)
+//                 //     .expect("Expected at least one RemoteInfo");
 
-        writeln!(out, "      ↳ Sources:").ok();
-        for (src, age) in &addr.sources {
-            writeln!(out, "          • {}: {:?}", source_display_name(src), age).ok();
-        }
-    }
-    out
-}
+//                 let remote_info_vec: Vec<RemoteInfo> = endpoint
+//                     .remote_info_iter()
+//                     .filter(|n| n.node_id != node_addr.node_id)
+//                     .collect::<Vec<_>>();
 
-fn source_display_name(src: &Source) -> String {
-    match src {
-        Source::Discovery { name } => format!("Discovery ({})", name),
-        Source::NamedApp { name } => format!("NamedApp ({})", name),
-        Source::Saved => "Saved".to_string(),
-        Source::Udp => "Udp".to_string(),
-        Source::Relay => "Relay".to_string(),
-        Source::App => "App".to_string(),
-    }
-}
+//                 for info in &remote_info_vec {
+//                     tracing::info!("{}", format_remote_info(info));
+//                 }
+
+//                 // tracing::info!(
+//                 //     "🔍 {:?} Discovered Node: {:?}",
+//                 //     endpoint.node_id().fmt_short(),
+//                 //     node_addr,
+//                 //     // remote_info_vec
+//                 //     //     .iter()
+//                 //     //     .map(|info| format!("{:?}", info)) // or use `to_string()` if `Display` is implemented
+//                 //     //     .collect::<Vec<_>>()
+//                 //     //     .join("\n\n")
+//                 // );
+
+//                 // if let Err(e) = erlang_sender_clone
+//                 //     .send(ErlangMessageEvent {
+//                 //         atom: atoms::iroh_gossip_node_discovered(),
+//                 //         payload: vec![
+//                 //             endpoint.node_id().fmt_short(),
+//                 //             node_addr.node_id.fmt_short(),
+//                 //             format!("{:?}", remote_info.latency)
+//                 //         ],
+//                 //     })
+//                 //     .await
+//                 // {
+//                 //     tracing::warn!(
+//                 //         "❌ GossipEvent::NeighborUp Failed to send erlang message: {:?}",
+//                 //         e
+//                 //     );
+//                 // }
+//             }
+//             Err(lagged) => {
+//                 tracing::warn!(
+//                     "🚨 {:?} Discovery stream lagged! Some items may have been lost.{:?}",
+//                     endpoint.node_id().fmt_short(),
+//                     lagged
+//                 );
+//             }
+//         }
+//     }
+// }
+
+// Note: format_remote_info and source_display_name removed in iroh 0.93+
+// RemoteInfo and Source types are no longer available
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Ticket {
     topic: TopicId,
-    nodes: Vec<NodeAddr>,
+    endpoint_addr: EndpointAddr,
 }
 
 impl Ticket {
@@ -1014,6 +1514,704 @@ fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
+// ============================================================================
+// AUTOMERGE CRDT NIF FUNCTIONS
+// ============================================================================
+
+use automerge::{AutoCommit, ObjType, ROOT, sync::SyncDoc, ReadDoc, transaction::Transactable, ActorId};
+
+// Helper to navigate to a path in the document
+fn navigate_to_path(doc: &mut AutoCommit, path: &[String]) -> NifResult<automerge::ObjId> {
+    let mut obj = ROOT;
+    for key in path {
+        match doc.get(&obj, key.as_str()) {
+            Ok(Some((automerge::Value::Object(_), id))) => obj = id,
+            Ok(_) => return Err(rustler::Error::Term(Box::new(format!("Path not found: {}", key)))),
+            Err(e) => return Err(rustler::Error::Term(Box::new(format!("Navigation error: {}", e)))),
+        }
+    }
+    Ok(obj)
+}
+
+fn navigate_to_path_readonly(doc: &AutoCommit, path: &[String]) -> NifResult<automerge::ObjId> {
+    let mut obj = ROOT;
+    for key in path {
+        match doc.get(&obj, key.as_str()) {
+            Ok(Some((automerge::Value::Object(_), id))) => obj = id,
+            Ok(_) => return Err(rustler::Error::Term(Box::new(format!("Path not found: {}", key)))),
+            Err(e) => return Err(rustler::Error::Term(Box::new(format!("Navigation error: {}", e)))),
+        }
+    }
+    Ok(obj)
+}
+
+// Helper to convert automerge value to Erlang term
+fn value_to_term<'a>(env: Env<'a>, value: &automerge::Value) -> NifResult<Term<'a>> {
+    match value {
+        automerge::Value::Scalar(s) => match s.as_ref() {
+            automerge::ScalarValue::Str(s) => Ok(s.to_string().encode(env)),
+            automerge::ScalarValue::Int(i) => Ok(i.encode(env)),
+            automerge::ScalarValue::Uint(u) => Ok((*u as i64).encode(env)),
+            automerge::ScalarValue::F64(f) => Ok(f.encode(env)),
+            automerge::ScalarValue::Boolean(b) => Ok(b.encode(env)),
+            automerge::ScalarValue::Bytes(b) => Ok(b.as_slice().encode(env)),
+            automerge::ScalarValue::Counter(c) => Ok((i64::from(c.clone())).encode(env)),
+            automerge::ScalarValue::Timestamp(t) => Ok(t.encode(env)),
+            automerge::ScalarValue::Null => Ok(atoms::not_found().encode(env)),
+            automerge::ScalarValue::Unknown { .. } => Ok(atoms::not_found().encode(env)),
+        },
+        automerge::Value::Object(obj_type) => {
+            Ok(format!("object:{:?}", obj_type).encode(env))
+        }
+    }
+}
+
+// ============================================================================
+// Document Management
+// ============================================================================
+
+/// Create a new automerge document, returns doc_id
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_create_doc(node_ref: ResourceArc<NodeRef>) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let mut doc = AutoCommit::new();
+    if let Some(ref actor) = state.automerge_actor {
+        doc.set_actor(actor.clone());
+    }
+
+    let doc_id = uuid::Uuid::new_v4().to_string();
+    state.automerge_docs.insert(doc_id.clone(), doc);
+    state.automerge_sync_states.insert(doc_id.clone(), std::collections::HashMap::new());
+
+    Ok(doc_id)
+}
+
+/// Fork an existing document (create a copy with same history)
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_fork_doc(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let original = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let mut forked = original.fork();
+
+    // Give the forked document a unique actor ID to avoid duplicate seq errors when merging
+    let new_actor = ActorId::random();
+    forked.set_actor(new_actor);
+
+    let new_doc_id = uuid::Uuid::new_v4().to_string();
+    state.automerge_docs.insert(new_doc_id.clone(), forked);
+    state.automerge_sync_states.insert(new_doc_id.clone(), std::collections::HashMap::new());
+
+    Ok(new_doc_id)
+}
+
+/// Load a document from saved bytes
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_load_doc(
+    node_ref: ResourceArc<NodeRef>,
+    data: Binary,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = AutoCommit::load(data.as_slice())
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Load error: {}", e))))?;
+
+    let doc_id = uuid::Uuid::new_v4().to_string();
+    state.automerge_docs.insert(doc_id.clone(), doc);
+    state.automerge_sync_states.insert(doc_id.clone(), std::collections::HashMap::new());
+
+    Ok(doc_id)
+}
+
+/// Save document to binary format
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_save_doc<'a>(
+    env: Env<'a>,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<Binary<'a>> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let bytes = doc.save();
+    let mut binary = OwnedBinary::new(bytes.len()).unwrap();
+    binary.as_mut_slice().copy_from_slice(&bytes);
+    Ok(binary.release(env))
+}
+
+/// Delete a document from memory
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_delete_doc(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<bool> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let removed = state.automerge_docs.remove(&doc_id).is_some();
+    state.automerge_sync_states.remove(&doc_id);
+
+    Ok(removed)
+}
+
+/// List all document IDs
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_docs(node_ref: ResourceArc<NodeRef>) -> NifResult<Vec<String>> {
+    let state = node_ref.0.lock().unwrap();
+    Ok(state.automerge_docs.keys().cloned().collect())
+}
+
+// ============================================================================
+// Map Operations
+// ============================================================================
+
+/// Put a value in a map at the given path
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_put(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    value: Term,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+
+    // Try to decode the value in different types
+    if let Ok(s) = value.decode::<String>() {
+        doc.put(&obj, &key, s).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(i) = value.decode::<i64>() {
+        doc.put(&obj, &key, i).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(f) = value.decode::<f64>() {
+        doc.put(&obj, &key, f).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(b) = value.decode::<bool>() {
+        doc.put(&obj, &key, b).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(bin) = value.decode::<Binary>() {
+        doc.put(&obj, &key, bin.as_slice().to_vec()).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else {
+        return Err(rustler::Error::Term(Box::new("Unsupported value type")));
+    }
+
+    Ok(atoms::ok())
+}
+
+/// Put an object (map or list) at path, returns the object ID
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_put_object(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    obj_type: String,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let parent_obj = navigate_to_path(doc, &path)?;
+    let obj_type = match obj_type.as_str() {
+        "map" => ObjType::Map,
+        "list" => ObjType::List,
+        "text" => ObjType::Text,
+        _ => return Err(rustler::Error::Term(Box::new("Invalid object type: use map, list, or text"))),
+    };
+
+    let obj_id = doc.put_object(&parent_obj, &key, obj_type)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Put object error: {}", e))))?;
+
+    Ok(obj_id.to_string())
+}
+
+/// Get a value from a map at the given path
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_get(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+) -> NifResult<Term> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+
+    match doc.get(&obj, &key) {
+        Ok(Some((value, _))) => value_to_term(env, &value),
+        Ok(None) => Ok(atoms::not_found().encode(env)),
+        Err(e) => Err(rustler::Error::Term(Box::new(format!("Get error: {}", e)))),
+    }
+}
+
+/// Delete a key from a map
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_delete(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.delete(&obj, &key)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Delete error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Get all keys from a map
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_map_keys(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+) -> NifResult<Vec<String>> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+    let keys: Vec<String> = doc.keys(&obj).collect();
+
+    Ok(keys)
+}
+
+// ============================================================================
+// List Operations
+// ============================================================================
+
+/// Insert a value into a list at index
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_insert(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    index: usize,
+    value: Term,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+
+    if let Ok(s) = value.decode::<String>() {
+        doc.insert(&obj, index, s).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(i) = value.decode::<i64>() {
+        doc.insert(&obj, index, i).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(f) = value.decode::<f64>() {
+        doc.insert(&obj, index, f).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(b) = value.decode::<bool>() {
+        doc.insert(&obj, index, b).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else {
+        return Err(rustler::Error::Term(Box::new("Unsupported value type")));
+    }
+
+    Ok(atoms::ok())
+}
+
+/// Push a value to the end of a list
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_push(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    value: Term,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    let len = doc.length(&obj);
+
+    if let Ok(s) = value.decode::<String>() {
+        doc.insert(&obj, len, s).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(i) = value.decode::<i64>() {
+        doc.insert(&obj, len, i).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(f) = value.decode::<f64>() {
+        doc.insert(&obj, len, f).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else if let Ok(b) = value.decode::<bool>() {
+        doc.insert(&obj, len, b).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    } else {
+        return Err(rustler::Error::Term(Box::new("Unsupported value type")));
+    }
+
+    Ok(atoms::ok())
+}
+
+/// Get a value from a list at index
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_get(
+    env: Env,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    index: usize,
+) -> NifResult<Term> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+
+    match doc.get(&obj, index) {
+        Ok(Some((value, _))) => value_to_term(env, &value),
+        Ok(None) => Ok(atoms::not_found().encode(env)),
+        Err(e) => Err(rustler::Error::Term(Box::new(format!("Get error: {}", e)))),
+    }
+}
+
+/// Delete a value from a list at index
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_delete(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    index: usize,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.delete(&obj, index)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Delete error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Get list length
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_list_length(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+) -> NifResult<usize> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+    Ok(doc.length(&obj))
+}
+
+// ============================================================================
+// Text Operations
+// ============================================================================
+
+/// Create a text object at path with initial text
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_create(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    initial_text: String,
+) -> NifResult<String> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let parent_obj = navigate_to_path(doc, &path)?;
+    let text_id = doc.put_object(&parent_obj, &key, ObjType::Text)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Create text error: {}", e))))?;
+
+    if !initial_text.is_empty() {
+        doc.splice_text(&text_id, 0, 0, &initial_text)
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Splice error: {}", e))))?;
+    }
+
+    Ok(text_id.to_string())
+}
+
+/// Insert text at position
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_insert(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    position: usize,
+    text: String,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.splice_text(&obj, position, 0, &text)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Insert error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Delete text at position
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_delete(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    position: usize,
+    length: usize,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+    doc.splice_text(&obj, position, length as isize, "")
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Delete error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Get full text content
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_text_get(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+) -> NifResult<String> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+    let text = doc.text(&obj)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Get text error: {}", e))))?;
+
+    Ok(text)
+}
+
+// ============================================================================
+// Counter Operations
+// ============================================================================
+
+/// Create or increment a counter, returns the new value
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_counter_increment(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+    delta: i64,
+) -> NifResult<i64> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path(doc, &path)?;
+
+    // Check if counter exists
+    if let Ok(Some((value, _))) = doc.get(&obj, &key) {
+        if let automerge::Value::Scalar(s) = value {
+            if let automerge::ScalarValue::Counter(c) = s.as_ref() {
+                let current_val: i64 = c.clone().into();
+                doc.increment(&obj, &key, delta)
+                    .map_err(|e| rustler::Error::Term(Box::new(format!("Increment error: {}", e))))?;
+                return Ok(current_val + delta);
+            }
+        }
+    }
+
+    // Create new counter
+    doc.put(&obj, &key, automerge::ScalarValue::Counter(delta.into()))
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Put counter error: {}", e))))?;
+
+    Ok(delta)
+}
+
+/// Get counter value
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_counter_get(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    path: Vec<String>,
+    key: String,
+) -> NifResult<i64> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let obj = navigate_to_path_readonly(doc, &path)?;
+
+    match doc.get(&obj, &key) {
+        Ok(Some((automerge::Value::Scalar(s), _))) => {
+            if let automerge::ScalarValue::Counter(c) = s.as_ref() {
+                Ok(i64::from(c.clone()))
+            } else {
+                Err(rustler::Error::Term(Box::new("Not a counter")))
+            }
+        }
+        Ok(_) => Err(rustler::Error::Term(Box::new("Counter not found"))),
+        Err(e) => Err(rustler::Error::Term(Box::new(format!("Get error: {}", e)))),
+    }
+}
+
+// ============================================================================
+// Merge and Sync Operations
+// ============================================================================
+
+/// Merge another document (as bytes) into this one
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_merge(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    other_doc_bytes: Binary,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let mut other = AutoCommit::load(other_doc_bytes.as_slice())
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Load error: {}", e))))?;
+
+    doc.merge(&mut other)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Merge error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Generate a sync message to send to a peer
+/// Note: For simplicity, this returns the full document save rather than incremental sync.
+/// Use automerge_sync_via_gossip for the primary sync mechanism.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_generate_sync_message<'a>(
+    env: Env<'a>,
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    _peer_id: String,
+) -> NifResult<Term<'a>> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    // For simplicity, return the full document save as the "sync message"
+    let bytes = doc.save();
+    let mut binary = OwnedBinary::new(bytes.len()).unwrap();
+    binary.as_mut_slice().copy_from_slice(&bytes);
+    Ok(binary.release(env).encode(env))
+}
+
+/// Receive and apply a sync message from a peer
+/// Note: This expects a full document save, which it merges into the local doc.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_receive_sync_message(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+    _peer_id: String,
+    message: Binary,
+) -> NifResult<Atom> {
+    let mut state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get_mut(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    // Load and merge the received document
+    let mut other = AutoCommit::load(message.as_slice())
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Load error: {}", e))))?;
+
+    doc.merge(&mut other)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Merge error: {}", e))))?;
+
+    Ok(atoms::ok())
+}
+
+/// Sync document via gossip (broadcast full document to all peers)
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_sync_via_gossip(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<Atom> {
+    let (sender, doc_bytes, node_id) = {
+        let mut state = node_ref.0.lock().unwrap();
+
+        // Get sender and node_id first
+        let sender = state.sender.clone();
+        let node_id = state.endpoint.id();
+
+        // Then get the doc
+        let doc = state.automerge_docs.get_mut(&doc_id)
+            .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+        let doc_bytes = doc.save();
+
+        (sender, doc_bytes, node_id)
+    };
+
+    // Create a special message type for automerge sync
+    #[derive(Serialize)]
+    struct AutomergeSyncMessage {
+        msg_type: String,
+        doc_id: String,
+        from: String,
+        document: Vec<u8>,
+    }
+
+    let message = AutomergeSyncMessage {
+        msg_type: "automerge_sync".to_string(),
+        doc_id,
+        from: node_id.to_string(),
+        document: doc_bytes,
+    };
+
+    let bytes = serde_json::to_vec(&message)
+        .map_err(|e| rustler::Error::Term(Box::new(format!("Serialize error: {}", e))))?;
+
+    RUNTIME.block_on(async {
+        sender.broadcast(bytes.into()).await
+            .map_err(|e| rustler::Error::Term(Box::new(format!("Broadcast error: {}", e))))
+    })?;
+
+    Ok(atoms::ok())
+}
+
+/// Get document as JSON-like map for debugging/inspection
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn automerge_to_json(
+    node_ref: ResourceArc<NodeRef>,
+    doc_id: String,
+) -> NifResult<String> {
+    let state = node_ref.0.lock().unwrap();
+
+    let doc = state.automerge_docs.get(&doc_id)
+        .ok_or_else(|| rustler::Error::Term(Box::new("Document not found")))?;
+
+    let json = serde_json::to_string(&automerge::AutoSerde::from(doc))
+        .map_err(|e| rustler::Error::Term(Box::new(format!("JSON serialization error: {}", e))))?;
+    Ok(json)
+}
 
 // fn setup_console_subscriber_once() {
 //     let _ = Registry::default()
@@ -1022,7 +2220,6 @@ fn add(a: i64, b: i64) -> i64 {
 // }
 
 // Rustler init
-
 
 // fn start_deadlock_checker() {
 //     thread::spawn(move || loop {
@@ -1040,7 +2237,6 @@ fn add(a: i64, b: i64) -> i64 {
 //         }
 //     });
 // }
-
 
 // pub fn start_continuous_flamegraph(interval_secs: u64) {
 //     thread::spawn(move || {
@@ -1094,7 +2290,12 @@ fn on_load(env: Env, _info: Term) -> bool {
         .with_ansi(atty::is(atty::Stream::Stdout))
         .finish();
 
-    tracing::subscriber::set_global_default(subscriber).expect("Failed to set up logging");
+    // Use try_init pattern to avoid panic if logger is already set
+    // This can happen during hot code reloading or NIF reload
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(_) => println!("Tracing subscriber initialized"),
+        Err(_) => println!("Tracing subscriber already initialized, skipping"),
+    }
 
     println!("Initializing Rust Iroh NIF module ...");
     let _ = rustler::resource!(NodeRef, env);

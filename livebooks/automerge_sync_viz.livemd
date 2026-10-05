@@ -1,0 +1,277 @@
+# Automerge Sync Visualization
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.15.3"},
+  {:iroh_ex, path: Path.expand("../")},
+  {:rustler, "~> 0.36.1", override: true},
+  {:rustler_precompiled, "~> 0.7"},
+  {:jason, "~> 1.4"}
+])
+```
+
+## Introduction
+
+This livebook demonstrates **multi-node synchronization** of Automerge CRDT documents using Iroh's gossip protocol.
+
+We'll create multiple nodes, each with their own copy of a document, and watch how changes propagate across the network.
+
+## Setup Multiple Nodes
+
+```elixir
+alias IrohEx.{Native, Automerge, NodeConfig}
+
+# Create three nodes to simulate a distributed system
+nodes =
+  for i <- 1..3 do
+    config = NodeConfig.build()
+    node = Native.create_node(self(), config)
+    node_id = Native.gen_node_addr(node)
+    short_id = String.slice(node_id, 0..7)
+
+    %{
+      id: i,
+      ref: node,
+      node_id: node_id,
+      short_id: short_id,
+      name: "Node #{i}"
+    }
+  end
+
+# Display node info
+IO.puts("Created #{length(nodes)} nodes:")
+
+for n <- nodes do
+  IO.puts("  #{n.name}: #{n.short_id}...")
+end
+
+# Store in frame for later use
+Kino.nothing()
+```
+
+## Create Documents on Each Node
+
+Each node will create a local document with the same structure.
+
+```elixir
+# Create a document on each node with shared structure
+doc_ids =
+  for n <- nodes do
+    doc_id = Automerge.new(n.ref)
+
+    # Initialize with some common structure
+    :ok = Automerge.put(n.ref, doc_id, [], "node_name", n.name)
+    :ok = Automerge.put(n.ref, doc_id, [], "initialized_at", DateTime.utc_now() |> DateTime.to_string())
+
+    # Create a shared counter
+    _ = Automerge.counter_increment(n.ref, doc_id, [], "edits", 0)
+
+    # Create a log list
+    {:ok, _} = Automerge.create_list(n.ref, doc_id, [], "changes")
+
+    %{node: n, doc_id: doc_id}
+  end
+
+IO.puts("Documents created on each node")
+
+for d <- doc_ids do
+  IO.puts("  #{d.node.name}: #{String.slice(d.doc_id, 0..7)}...")
+end
+
+Kino.nothing()
+```
+
+## Document State Display
+
+```elixir
+# Create a function to display all node states
+display_all_states = fn doc_data ->
+  for d <- doc_data do
+    json = Automerge.to_json(d.node.ref, d.doc_id)
+
+    Kino.Markdown.new("""
+    ### #{d.node.name} (#{d.node.short_id}...)
+
+    ```json
+    #{json}
+    ```
+    """)
+  end
+  |> Kino.Layout.grid(columns: 3)
+end
+
+# Initial state display
+display_all_states.(doc_ids)
+```
+
+## Simulating Local Edits
+
+Let's make edits on each node independently.
+
+```elixir
+# Node 1 makes an edit
+[node1_data | rest] = doc_ids
+:ok = Automerge.put(node1_data.node.ref, node1_data.doc_id, [], "message_from_node1", "Hello from Node 1!")
+_ = Automerge.counter_increment(node1_data.node.ref, node1_data.doc_id, [], "edits", 1)
+:ok = Automerge.list_push(node1_data.node.ref, node1_data.doc_id, ["changes"], "Node 1 added message")
+
+# Node 2 makes a different edit
+[node2_data | [node3_data]] = rest
+:ok = Automerge.put(node2_data.node.ref, node2_data.doc_id, [], "message_from_node2", "Greetings from Node 2!")
+_ = Automerge.counter_increment(node2_data.node.ref, node2_data.doc_id, [], "edits", 1)
+:ok = Automerge.list_push(node2_data.node.ref, node2_data.doc_id, ["changes"], "Node 2 added greeting")
+
+# Node 3 makes yet another edit
+:ok = Automerge.put(node3_data.node.ref, node3_data.doc_id, [], "message_from_node3", "Node 3 checking in!")
+_ = Automerge.counter_increment(node3_data.node.ref, node3_data.doc_id, [], "edits", 1)
+:ok = Automerge.list_push(node3_data.node.ref, node3_data.doc_id, ["changes"], "Node 3 checked in")
+
+IO.puts("Each node made independent edits")
+display_all_states.(doc_ids)
+```
+
+## Manual Sync: Node 1 -> Node 2
+
+Now let's sync Node 1's changes to Node 2.
+
+```elixir
+# Save Node 1's document
+{:ok, node1_bytes} = Automerge.save(node1_data.node.ref, node1_data.doc_id)
+IO.puts("Node 1 document size: #{byte_size(node1_bytes)} bytes")
+
+# Merge into Node 2
+:ok = Automerge.merge(node2_data.node.ref, node2_data.doc_id, node1_bytes)
+IO.puts("Merged Node 1 -> Node 2")
+
+# Add merge log entry
+:ok = Automerge.list_push(node2_data.node.ref, node2_data.doc_id, ["changes"], "Received sync from Node 1")
+
+display_all_states.(doc_ids)
+```
+
+## Full Network Sync
+
+Let's sync all nodes to achieve convergence.
+
+```elixir
+# Save each node's current state
+saved_states =
+  for d <- doc_ids do
+    {:ok, bytes} = Automerge.save(d.node.ref, d.doc_id)
+    %{node: d.node, doc_id: d.doc_id, bytes: bytes}
+  end
+
+# Each node merges all other nodes' states
+for target <- doc_ids do
+  for source <- saved_states do
+    if source.node.id != target.node.id do
+      :ok = Automerge.merge(target.node.ref, target.doc_id, source.bytes)
+    end
+  end
+
+  :ok = Automerge.list_push(target.node.ref, target.doc_id, ["changes"], "Full sync completed")
+  _ = Automerge.counter_increment(target.node.ref, target.doc_id, [], "edits", 1)
+end
+
+IO.puts("Full network sync completed!")
+display_all_states.(doc_ids)
+```
+
+## Verify Convergence
+
+All nodes should now have identical data (except for the final sync log entry).
+
+```elixir
+# Check that key fields match
+for key <- ["message_from_node1", "message_from_node2", "message_from_node3"] do
+  values =
+    for d <- doc_ids do
+      Automerge.get(d.node.ref, d.doc_id, [], key)
+    end
+
+  all_same = length(Enum.uniq(values)) == 1
+
+  IO.puts("#{key}:")
+  IO.puts("  Values: #{inspect(values)}")
+  IO.puts("  Converged: #{all_same}")
+end
+
+# Check edit counter
+counters =
+  for d <- doc_ids do
+    {d.node.name, Automerge.counter_get(d.node.ref, d.doc_id, [], "edits")}
+  end
+
+IO.puts("\nEdit counters:")
+for {name, count} <- counters do
+  IO.puts("  #{name}: #{count}")
+end
+```
+
+## Interactive Sync Demo
+
+```elixir
+# Create controls for interactive syncing
+node_options =
+  for d <- doc_ids do
+    {d.node.name, d.node.id}
+  end
+
+form =
+  Kino.Control.form(
+    [
+      source: Kino.Input.select("Source Node", node_options),
+      target: Kino.Input.select("Target Node", node_options),
+      message: Kino.Input.text("Message to add (on source)")
+    ],
+    submit: "Sync"
+  )
+
+Kino.render(form)
+
+# Create frame for state display
+state_frame = Kino.Frame.new()
+Kino.render(state_frame)
+
+# Initial display
+Kino.Frame.render(state_frame, display_all_states.(doc_ids))
+
+# Handle sync requests
+Kino.listen(form, fn event ->
+  %{data: %{source: source_id, target: target_id, message: message}} = event
+
+  source = Enum.find(doc_ids, &(&1.node.id == source_id))
+  target = Enum.find(doc_ids, &(&1.node.id == target_id))
+
+  if source && target && source_id != target_id do
+    # Add message to source if provided
+    if String.length(message) > 0 do
+      _ = Automerge.counter_increment(source.node.ref, source.doc_id, [], "edits", 1)
+      :ok = Automerge.list_push(source.node.ref, source.doc_id, ["changes"], message)
+    end
+
+    # Save and sync
+    {:ok, bytes} = Automerge.save(source.node.ref, source.doc_id)
+    :ok = Automerge.merge(target.node.ref, target.doc_id, bytes)
+    :ok = Automerge.list_push(target.node.ref, target.doc_id, ["changes"], "Synced from #{source.node.name}")
+
+    IO.puts("Synced: #{source.node.name} -> #{target.node.name}")
+    Kino.Frame.render(state_frame, display_all_states.(doc_ids))
+  else
+    IO.puts("Please select different source and target nodes")
+  end
+end)
+```
+
+## Summary
+
+This livebook demonstrated:
+
+1. **Multi-node setup** - Creating multiple independent Iroh nodes
+2. **Independent edits** - Each node making local changes
+3. **Manual sync** - Explicitly syncing documents between nodes
+4. **Full network sync** - Broadcasting changes to all nodes
+5. **Convergence verification** - Confirming all nodes have the same data
+6. **Interactive demo** - UI for experimenting with sync patterns
+
+In a real application, the `Automerge.sync/2` function would broadcast documents via Iroh's gossip protocol automatically.

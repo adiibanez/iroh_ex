@@ -1,0 +1,944 @@
+<!-- livebook:{"app_settings":{"access_type":"public","show_source":true,"slug":"iroh-observer"}} -->
+
+# Graphviz Observer - fork
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.15.3"},
+  # {:iroh_ex, "~> 0.0.4"},
+   {:iroh_ex,
+   path: "/Users/adrianibanez/Documents/projects/2024_sensor-platform/checkouts/iroh_ex"},
+  {:rustler, "~> 0.36.1", override: true},
+  {:rustler_precompiled, "~> 0.7"}
+])
+```
+
+## Livebook Sigma
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+defmodule SigmaGraph do
+  use Kino.JS
+  use Kino.JS.Live
+
+  def new do
+    Kino.JS.Live.new(__MODULE__, %{})
+  end
+
+  # Add a node
+  def add_node(kino, node, replace \\ false) do
+    Kino.JS.Live.cast(kino, {:add_node, node, replace})
+  end
+
+  def merge_node(kino, node) do
+    Kino.JS.Live.cast(kino, {:merge_node, node})
+  end
+
+  # Remove a node
+  def remove_node(kino, node_id) do
+    Kino.JS.Live.cast(kino, {:remove_node, node_id})
+  end
+
+  # Add an edge
+  def add_edge(kino, edge) do
+    Kino.JS.Live.cast(kino, {:add_edge, edge})
+  end
+
+  # Add an edge without rendering
+  def add_edge_batched(kino, edge) do
+    Kino.JS.Live.cast(kino, {:add_edge_batched, edge})
+  end
+
+  # Remove an edge
+  def remove_edge(kino, edge) do
+    Kino.JS.Live.cast(kino, {:remove_edge, edge})
+  end
+
+  def render(kino) do
+    Kino.JS.Live.cast(kino, :render)
+  end
+
+  def clear(kino) do
+    Kino.JS.Live.cast(kino, :clear)
+  end
+
+  def test(kino, payload) do
+    Kino.JS.Live.cast(kino, {:test, payload})
+  end
+
+  @impl true
+  def init(_, ctx) do
+    {:ok, assign(ctx, nodes: %{}, edges: [])}
+  end
+
+  @impl true
+  def handle_connect(ctx) do
+    {:ok, ctx.assigns, ctx}
+  end
+
+  @impl true
+  def handle_cast({:test, payload}, ctx) do
+    # IO.inspect(payload, label: "Test")
+    broadcast_event(ctx, "test", payload)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast(:clear, ctx) do
+    # IO.inspect(payload, label: "Test")
+    broadcast_event(ctx, "clear", [])
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:add_node, node, replace}, ctx) do
+    default_values = %{
+      x: :rand.uniform(10),
+      y: :rand.uniform(10),
+      size: 10,
+      color: "#1f77b4"
+    }
+
+    node = Map.merge(default_values, node)
+
+    # IO.inspect(node, label: "Node debug")
+
+    ctx = update_in(ctx.assigns.nodes, &Map.put(&1, node.id, node))
+    # IO.inspect(node, label: "Add Node")
+    # IO.inspect(ctx, label: "Add Node ctx")
+    broadcast_event(
+      ctx,
+      "add_node",
+      node |> Map.put(:replace, replace)
+    )
+
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:merge_node, node}, ctx) do
+    ctx =
+      update_in(ctx.assigns.nodes, fn nodes ->
+        Map.update(nodes, node.id, node, &Map.merge(&1, node))
+      end)
+
+    broadcast_event(
+      ctx,
+      "merge_node",
+      node
+    )
+
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:add_edge, edge}, ctx) do
+    ctx = update_in(ctx.assigns.edges, &[edge | &1])
+    broadcast_event(ctx, "add_edge", edge)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:add_edge_batched, edge}, ctx) do
+    ctx = update_in(ctx.assigns.edges, &[edge | &1])
+    broadcast_event(ctx, "add_edge_batched", edge)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast(:render, ctx) do
+    broadcast_event(ctx, "render", [])
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:remove_node, node_id}, ctx) do
+    ctx = update_in(ctx.assigns.nodes, &Map.delete(&1, node_id))
+
+    # Correctly filter out edges that involve the removed node
+    ctx =
+      update_in(
+        ctx.assigns.edges,
+        &Enum.reject(&1, fn edge ->
+          edge.source == node_id || edge.target == node_id
+        end)
+      )
+
+    broadcast_event(ctx, "remove_node", node_id)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_cast({:remove_edge, edge}, ctx) do
+    ctx =
+      update_in(
+        ctx.assigns.edges,
+        &Enum.reject(&1, fn e ->
+          edge.source == e.source && edge.target == e.target
+        end)
+      )
+
+    broadcast_event(ctx, "remove_edge", edge)
+    {:noreply, ctx}
+  end
+
+  @impl true
+  def handle_info(msg, ctx) do
+    IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
+    {:noreply, ctx}
+  end
+
+  asset "main.js" do
+    """
+    import Sigma from 'https://cdn.jsdelivr.net/npm/sigma@3.0.1/+esm';
+    import Graph from 'https://cdn.jsdelivr.net/npm/graphology@0.26.0/+esm';
+    import graphologyLayout from 'https://cdn.jsdelivr.net/npm/graphology-layout@0.6.1/+esm';
+    import FA2Layout from 'https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/+esm';
+    import graphOlogyLayoutForce from 'https://cdn.jsdelivr.net/npm/graphology-layout-force@0.2.4/+esm';
+    import sigmaEdgeCurve from 'https://cdn.jsdelivr.net/npm/@sigma/edge-curve@3.1.0/+esm';
+    import debounce from 'https://cdn.jsdelivr.net/npm/debounce@2.2.0/+esm';
+
+    const { circular } = graphologyLayout;
+
+    // --- Configuration ---
+    const DIMMED_COLOR = "rgba(200, 200, 200, 0.3)";
+      
+
+    export function init(ctx, payload) {
+      const container = document.createElement("div");
+      container.style.width = "100%";
+      container.style.height = "500px";
+      ctx.root.appendChild(container);
+
+
+
+      // --- Reducers ---
+      
+      /**
+       * Decides the final attributes for each node based on the hover state.
+       * This function is passed to the Sigma constructor.
+       */
+      const nodeReducer = (nodeId, attributes) => {
+        // Base attributes to potentially modify
+        const newAttributes = { ...attributes };
+      
+        if (hoveredNodeId) {
+          // A node is hovered
+          if (nodeId === hoveredNodeId || hoveredNeighbors.has(nodeId)) {
+            // This node IS the hovered one or a direct neighbor: HIGHLIGHT
+            newAttributes.zIndex = 1;
+            // ** Crucially: DO NOT set 'color' here **
+            // By not setting it, Sigma will use the color from the
+            // original graph data (your peer count color) or the default.
+            // We only remove the potential 'color' override below if needed.
+            if (newAttributes.color === DIMMED_COLOR) {
+               // If it was previously dimmed, remove the override
+               delete newAttributes.color;
+            }
+          } else {
+            // This node is NOT hovered or a neighbor: DIM
+            newAttributes.color = DIMMED_COLOR;
+            newAttributes.zIndex = 0;
+          }
+        } else {
+          // No node is hovered: RESET state for all nodes
+          newAttributes.zIndex = 0;
+          // If the node currently has the dimmed color, remove the override
+          // to revert to its original/default color.
+          if (newAttributes.color === DIMMED_COLOR) {
+             delete newAttributes.color;
+          }
+        }
+        return newAttributes;
+      };
+      
+      /**
+       * Decides the final attributes for each edge based on the hover state.
+       * This function is passed to the Sigma constructor.
+       */
+      const edgeReducer = (edgeId, attributes, sourceId, targetId) => {
+          const newAttributes = { ...attributes };
+      
+          if (hoveredNodeId) {
+              // An edge is highlighted if it connects the hovered node to one of its neighbors
+              // (or connects the hovered node to itself, though less common)
+              const isSourceHovered = sourceId === hoveredNodeId;
+              const isTargetHovered = targetId === hoveredNodeId;
+              const isSourceNeighbor = hoveredNeighbors.has(sourceId);
+              const isTargetNeighbor = hoveredNeighbors.has(targetId);
+      
+              // Highlight if connected *directly* to the hovered node
+              // (Adjust logic slightly if you ONLY want edges *between* hovered and neighbors)
+              if (isSourceHovered || isTargetHovered) {
+                 // Highlight Edge
+                  newAttributes.zIndex = 1;
+                  // ** Crucially: DO NOT set 'color' here **
+                  if (newAttributes.color === DIMMED_COLOR) {
+                      delete newAttributes.color;
+                  }
+              } else {
+                  // Dim Edge
+                  newAttributes.color = DIMMED_COLOR;
+                  newAttributes.zIndex = 0;
+              }
+          } else {
+              // No node hovered: Reset edge state
+              newAttributes.zIndex = 0;
+              if (newAttributes.color === DIMMED_COLOR) {
+                  delete newAttributes.color;
+              }
+          }
+          return newAttributes;
+      };
+
+    
+
+      const graph = new Graph();
+      const renderer = new Sigma(graph, container, {
+        labelDensity: 0.2,
+        labelRenderedSizeThreshold: 10,
+        defaultLabelSize: 14,
+        nodeReducer: nodeReducer,
+        edgeReducer: edgeReducer,
+        edgeProgramClasses: {
+          curved: sigmaEdgeCurve,
+        },
+      });
+
+      // Store full labels separately
+      const fullLabels = {};
+
+      function placeNodesInMultiRings(centerX, centerY, baseRadius, minSpacing) {
+          const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
+          if (ringNodes.length === 0) return;
+      
+          let rings = [];
+          let nodesPlaced = 0;
+          let currentRadius = baseRadius;
+      
+          function maxNodesForRadius(radius) {
+              let avgNodeSize = ringNodes.reduce((sum, node) => sum + graph.getNodeAttribute(node, "size"), 0) / ringNodes.length;
+              let spacingFactor = avgNodeSize + minSpacing;
+              return Math.max(6, Math.floor((2 * Math.PI * radius) / spacingFactor)); // Ensure at least 6 nodes per ring
+          }
+      
+          // **Distribute Nodes into Multiple Rings Correctly**
+          while (nodesPlaced < ringNodes.length) {
+              let maxNodesInRing = maxNodesForRadius(currentRadius);
+              let nodesInThisRing = Math.min(maxNodesInRing, ringNodes.length - nodesPlaced);
+      
+              let currentRingNodes = ringNodes.slice(nodesPlaced, nodesPlaced + nodesInThisRing);
+              rings.push({ nodes: currentRingNodes, radius: currentRadius });
+      
+              nodesPlaced += nodesInThisRing;
+      
+              // Increase radius for the next ring
+              currentRadius += baseRadius + minSpacing * 4;
+          }
+      
+          // **Place Nodes in Their Respective Rings**
+          rings.forEach(({ nodes, radius }) => {
+              console.log("ring ", radius, nodes.length);
+              placeNodesInRing(centerX, centerY, radius, nodes);
+          });
+      }
+      
+      function placeNodesInRing(centerX, centerY, radius, nodes) {
+          if (nodes.length === 0) return;
+      
+          const angleStep = (2 * Math.PI) / nodes.length;
+      
+          nodes.forEach((node, i) => {
+              const angle = i * angleStep;
+              graph.mergeNodeAttributes(node, {
+                  x: centerX + radius * Math.cos(angle),
+                  y: centerY + radius * Math.sin(angle),
+              });
+          });
+      }
+
+
+      function placeNodesInRing(centerX, centerY, radius) {
+          const ringNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "ring");
+          const angleStep = (2 * Math.PI) / ringNodes.length; // Evenly distribute
+
+          ringNodes.forEach((node, i) => {
+              const angle = i * angleStep;
+              graph.mergeNodeAttributes(node, {
+                  x: centerX + radius * Math.cos(angle),
+                  y: centerY + radius * Math.sin(angle),
+              });
+          });
+      }
+
+      function placeNodesInGrid(gridStartX, gridStartY, cols, spacing) {
+          const gridNodes = graph.nodes().filter(n => graph.getNodeAttribute(n, "layout") === "grid");
+
+          gridNodes.forEach((node, i) => {
+              const row = Math.floor(i / cols);
+              const col = i % cols;
+              graph.mergeNodeAttributes(node, {
+                  x: gridStartX + col * spacing, // Column placement
+                  y: gridStartY + row * spacing, // Row placement
+              });
+          });
+      }
+
+      function render() {
+        adjustLabelPositions();
+        renderer.refresh();
+      }
+
+      function formatLabel(label) {
+        return label.length > 20 ? label.substring(0, 20) + "..." : label;
+      }
+
+      function adjustLabelPositions() {
+        graph.updateEachNodeAttributes((node, attr) => ({
+          ...attr,
+          labelY: attr.y + 0.2,  // Move label slightly outside the node
+        }));
+      }
+
+      ctx.handleEvent("clear", (n) => {
+        graph.clear();
+        renderer.refresh();
+      });
+
+      ctx.handleEvent("add_node", (node) => {
+        console.log("Add node", node);
+
+        if (node.replace || !graph.hasNode(node.id)) {
+          if (node.replace && graph.hasNode(node.id)) {
+            graph.dropNode(node.id);
+          }
+
+          fullLabels[node.id] = node.label;
+
+          graph.addNode(node.id, node);
+
+          // placeNodesInRing(centerX, centerY, radius)
+          if(node.layout == 'ring') {
+            placeNodesInRing(0, 0, 20); // circular.assign(graph);
+            //placeNodesInMultiRings(0, 0, 30, 5);
+          }
+          // placeNodesInGrid(gridStartX, gridStartY, cols, spacing)
+          if(node.layout == 'grid') placeNodesInGrid(-50, -20, 4, 5);
+
+        } else {
+          console.log("Node " + node.id + " already exists, ignore");
+        }
+
+        debounce(render, 100);
+      });
+
+      ctx.handleEvent("merge_node", (node) => {
+        console.log("Merge node", node);
+
+        if (graph.hasNode(node.id)) {
+          graph.mergeNode(node.id, node);
+          fullLabels[node.id] = node.label;
+          adjustLabelPositions();
+          debounce(render, 100);
+        }
+      });
+
+      ctx.handleEvent("remove_node", (nodeId) => {
+        if (graph.hasNode(nodeId)) {
+          graph.dropNode(nodeId);
+          delete fullLabels[nodeId];
+        }
+        debounce(render, 100);
+      });
+
+      ctx.handleEvent("add_edge", ({ source, target, props }) => {
+        if (graph.hasNode(source) && graph.hasNode(target)) {
+          if( graph.hasEdge(source, target) ) graph.dropEdge(source, target);
+          graph.addEdge(source, target, props);
+        } 
+        debounce(render, 100);
+      });
+
+      ctx.handleEvent("add_edge_batched", ({ source, target, props }) => {
+        if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
+          graph.addEdge(source, target, props);
+        }
+      });
+
+      ctx.handleEvent("render", (ctx) => {
+        renderer.refresh();
+      });
+
+      ctx.handleEvent("remove_edge", ({ source, target }) => {
+        if (graph.hasEdge(source, target)) {
+          graph.dropEdge(source, target);
+          console.log("dropped edge with ", source, target);
+        } else {
+          console.log("no edge with ", source, target);
+        }
+        renderer.refresh();
+      });
+
+      
+      // --- External State ---
+      // Holds the ID of the node currently being hovered, or null if none.
+      let hoveredNodeId = null;
+      // Optional: Store neighbors temporarily for performance if graph is large
+      let hoveredNeighbors = new Set();
+      
+      // --- Event Handlers (Now much simpler!) ---
+      
+      renderer.on("enterNode", ({ node }) => {
+        // Set the hover state
+        hoveredNodeId = node;
+        hoveredNeighbors = new Set(graph.neighbors(node)); // Calculate neighbors on enter
+      
+        // Set the specific label for the hovered node (direct manipulation is fine here)
+        if (fullLabels && fullLabels[node]) { // Check if fullLabels exists and has entry
+            graph.setNodeAttribute(node, "label", fullLabels[node]);
+        }
+      
+        // Trigger reducers to re-evaluate based on the new state
+        renderer.refresh();
+      });
+      
+      renderer.on("leaveNode", ({ node }) => {
+        // Reset the hover state ONLY if leaving the currently hovered node
+        // (Prevents issues if mouse moves quickly between nodes)
+        if (hoveredNodeId === node) {
+            hoveredNodeId = null;
+            hoveredNeighbors = new Set(); // Clear neighbors
+      
+            // Reset the label (remove attribute to revert to default/data label)
+            graph.removeNodeAttribute(node, "label");
+      
+            // Trigger reducers to re-evaluate (will now reset everything)
+            renderer.refresh();
+        }
+      });
+    };
+
+    """
+  end
+end
+```
+
+```elixir
+defmodule IrohLogger do
+  use GenServer
+
+  @node_size 5
+  @impl true
+  def init(config) do
+    {:ok, %{graph: config.graph, datatable: config.datatable, nodes: [], relays: [], peers: %{}, msg_received_cnt: 0, messages: []}}
+  end
+
+  @impl true
+  def handle_info({ :iroh_node_setup, node_addr }, %{ graph: graph, nodes: nodes } = state ) do
+    
+    IO.puts("Node setup: #{node_addr}")
+    
+    SigmaGraph.add_node(
+        graph,
+        %{
+          id: "#{node_addr}",
+          layout: "ring",
+          size: @node_size,
+          color: "grey",
+          label: "#{node_addr}"
+        },
+        true
+      )
+    
+    {:noreply, 
+      state
+      |> Map.put(:nodes, nodes ++ [node_addr])
+    }
+  end
+
+
+  @impl true
+  def handle_info({ :iroh_node_connected, node_addr, node_relay }, %{ graph: graph, nodes: nodes, relays: relays } = state ) do
+    
+    IO.puts("Node connected: #{node_addr} #{node_relay}")
+    
+    SigmaGraph.merge_node(
+        graph,
+        %{
+          id: "#{node_addr}",
+          layout: "ring",
+          size: @node_size,
+          color: "grey",
+          label: "#{node_addr}"
+        }
+      )
+
+    SigmaGraph.merge_node(
+        graph,
+        %{
+          id: node_relay,
+          size: @node_size,
+          color: "blue",
+          label: node_relay,
+          x: -15,
+          y: 0,
+        }
+      )
+
+    SigmaGraph.add_edge(
+      graph, 
+      %{
+        source: node_addr,
+        target: node_relay,
+        props: %{ type: "curved", color: "grey" }
+      }
+    )
+    
+    {:noreply, 
+      state
+      |> Map.put(:nodes, nodes ++ [node_addr])
+      |> Map.put(:relays, relays ++ [node_relay])
+      |> update_in([:peers, node_addr], fn 
+        nil -> []
+      end)
+    }
+  end
+
+  @impl true
+  def handle_info({:iroh_gossip_neighbor_up, source, target}, %{ graph: graph, peers: peers } = state) do
+    IO.puts("Neighbor up: #{source} #{target}")
+
+    new_peers = peers[source] ++ [target]
+
+    peers_cnt = Enum.count(new_peers)
+
+    color =
+      cond do
+        peers_cnt == 0 -> "red"
+        peers_cnt == 1 -> "orange"
+        peers_cnt < 3 -> "yellow"
+        peers_cnt >= 3 -> "green"
+      end
+
+    SigmaGraph.merge_node(
+      graph,
+      %{
+        id: source,
+        layout: "ring",
+        size: @node_size + peers_cnt * 2,
+        color: color,
+        label: "#{source} P:#{peers_cnt}"
+      }
+    )
+    
+    SigmaGraph.add_edge(
+      graph, 
+      %{
+        source: source,
+        target: target,
+        props: %{ color: "grey", size: 1 }
+      }
+    )
+    {:noreply, 
+      state
+      |> update_in([:peers, source], fn _ -> new_peers end)
+    }
+  end
+
+  @impl true
+  def handle_info({:iroh_gossip_neighbor_down, source, target}, %{ graph: graph } = state) do
+    IO.puts("Neighbor down: #{source} #{target}")
+    SigmaGraph.remove_edge(
+      graph, 
+      %{
+        source: source,
+        target: target,
+      }
+    )
+    {:noreply, 
+      state
+      |> update_in([:peers, source], fn peers -> peers -- [target] end)
+    }
+  end
+
+  @impl true
+  def handle_info({:iroh_gossip_node_discovered_, source, target}, %{ graph: graph } = state) do
+    SigmaGraph.add_edge(
+      graph, 
+      %{
+        source: source,
+        target: target,
+        props: %{ color: "#ddd" }
+      }
+    )
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:iroh_gossip_message_received, source, payload}, %{ msg_received_cnt: msg_received_cnt, graph: graph, messages: messages, datatable: datatable } = state) do
+    
+    edge = %{source: payload, target: source}
+    IO.puts("#{__MODULE__} handle_info :iroh_gossip_message_received #{source} #{payload} #{inspect(edge)}")
+    SigmaGraph.remove_edge(graph, edge)
+    
+    new_messages = messages ++ [%{source: source, payload: payload}]
+    
+    Kino.DataTable.update(datatable, new_messages)
+  
+    {:noreply, state
+      |> Map.put(:msg_received_cnt, msg_received_cnt + 1)
+      |> Map.put(:messages, new_messages)
+    }
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    IO.puts("#{__MODULE__} Catchall #{inspect(msg)}")
+    {:noreply, state}
+  end
+end
+
+
+
+
+defmodule UIGenServer do
+  use GenServer
+  def init( init_state ) do
+
+    graph = init_state.graph
+    datatable = init_state.datatable
+
+    {:ok, logger_pid} = GenServer.start_link(IrohLogger, %{graph: graph, datatable: datatable})
+    
+    # {:ok, observer_pid} = IrohObserver.start_link({graph, datatable})
+  
+    { :ok, manager_pid }  = IrohEx.NodeManager.start_link(logger_pid)
+    
+    {:ok, init_state
+      |> Map.put(:graph, graph)
+      |> Map.put(:datatable, datatable)
+      |> Map.put(:logger_pid,  logger_pid)
+      |> Map.put(:manager_pid, manager_pid)
+    }
+  end
+
+  def handle_call({:config, key, value}, _from, state) do    
+    IO.puts("#{__MODULE__} :config #{key} #{value}")
+    {:reply, value, Map.put(state, key, value)}
+  end
+
+  def handle_call(:reset, _from, %{
+    datatable: datatable,
+    graph: graph,
+    manager_pid: manager_pid,
+  } = state) do
+    GenServer.call(manager_pid, :reset)
+  
+    Kino.DataTable.update(datatable, [])
+    SigmaGraph.clear(graph)
+    
+    :erlang.garbage_collect()
+  
+    {:reply, [], state}
+  end
+
+  def handle_call(:start_sim, _from, %{
+    datatable: datatable,
+    graph: graph,
+    num_nodes: num_nodes,
+    delay_ms: delay_ms,
+    manager_pid: manager_pid,
+    logger_pid: logger_pid,
+    #delay_msg_ms: delay_msg_ms
+  } = state) do
+    Kino.DataTable.update(datatable, [])
+    SigmaGraph.clear(graph)
+  
+    GenServer.call(manager_pid, {:create_nodes, num_nodes, logger_pid}, 30_000)
+    # why? 
+    Process.sleep(delay_ms)
+    
+    {:reply, [], state}
+  end  
+
+  def handle_call(:send_messages, _from, %{
+    datatable: _datatable,
+    graph: graph,
+    num_messages: num_messages,
+    use_random: use_random,
+    delay_ms: delay_ms,
+  } = state) do
+    nodes = IrohEx.NodeSupervisor.get_children()
+  
+    # IO.inspect(nodes, label: "Nodes test")
+    send_many_messages(graph, nodes, num_messages, use_random, 100 )
+  
+    Process.sleep(delay_ms)
+  
+    reports = Enum.map(nodes, fn n ->
+      #IO.puts("Process alive? #{Process.alive?(n)}")
+  
+      #IO.puts("node report: #{inspect(n)}")
+      report = GenServer.call(n, :report)
+      #IO.puts("report: #{inspect(report)}")
+      report
+    end)
+  
+    IO.puts("Node reports #{inspect(reports)}" )
+
+    {:reply, [], state}
+  
+  end
+
+
+  def send_many_messages(graph, nodes, msg_cnt, use_random_node, rand_msg_delay \\ 100) do
+
+    no_random_node = Enum.random(nodes)
+
+    stream =
+      Stream.map(1..msg_cnt, fn x ->
+        # Return the *action* to be performed
+        fn ->
+          node = case use_random_node do 
+            true -> Enum.random(nodes)
+            false -> no_random_node
+          end
+          _node_id = GenServer.call(node, :get_node_addr)
+          #Native.gen_node_addr(node)
+          # Sleep *before* the task
+          # Process.sleep(rand_msg_delay)
+
+          msg = "MSG:#{x}"
+
+          #Native.send_message(node, msg)
+          #GenServer.cast(manager_pid, {:send_message, node, msg})
+          # GenServer.cast(node, {:send_message, msg})
+          Process.send_after(node, {:send_message, msg}, :rand.uniform(rand_msg_delay))
+
+          SigmaGraph.add_node(
+            graph,
+            %{id: msg, layout: "grid", size: 5, label: msg, color: "grey"},
+            true
+          )
+
+          recipient_nodes = nodes -- [node]
+
+          Enum.each(recipient_nodes, fn n -> 
+            node_id = GenServer.call(n, :get_node_addr)
+            edge = %{source: msg, target: node_id, props: %{ type: "curved" }}
+            IO.puts("#{__MODULE__} send_message #{msg} edge: #{inspect(edge)}")
+            SigmaGraph.add_edge(graph, edge)  
+          end)
+        end
+      end)
+
+    stream
+    |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
+    # |> Task.async_stream(fn action -> action.() end, max_concurrency: Enum.count(nodes))
+    |> Enum.to_list()
+
+    Process.sleep(1000)
+    
+  end
+  
+end
+```
+
+```elixir
+graph = SigmaGraph.new()
+# do not show graph yet
+nil
+```
+
+## Run stuff
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+
+# UI Controls
+num_nodes = Kino.Input.number("Number of Nodes", default: 30, min: 3)
+delay_ms = Kino.Input.number("Delay after connect, before sending messages", default: 1000, min: 0)
+delay_msg_ms = Kino.Input.number("Delay msg random", default: 1000, min: 0)
+num_messages = Kino.Input.number("Number of Messages", default: 3, min: 1)
+use_random = Kino.Input.checkbox("Use Random Sender", default: true)
+setup_button = Kino.Control.button("Setup nodes")
+send_button = Kino.Control.button("Send messages")
+reset_button = Kino.Control.button("Reset")
+
+datatable =
+  Kino.DataTable.new(
+    [],
+    keys: [:source, :payload]
+  )
+
+buttons = Kino.Layout.grid([setup_button,
+    send_button,
+    reset_button], columns: 3)
+
+# Display Controls
+grid =
+  Kino.Layout.grid([
+    graph,
+    num_nodes,
+    delay_ms,
+    delay_msg_ms,
+    num_messages,
+    use_random,
+    buttons,
+    datatable
+  ])
+
+grid
+
+```
+
+```elixir
+
+num_nodes_value = Kino.Input.read(num_nodes)
+num_messages_value = Kino.Input.read(num_messages) #Kino.Input.read(num_messages)
+use_random_value = Kino.Input.read(use_random)
+delay_ms_value = Kino.Input.read(delay_ms)
+delay_msg_ms_value = Kino.Input.read(delay_msg_ms)
+
+{:ok, ui_pid} = GenServer.start_link(UIGenServer, %{
+  graph: graph,
+  datatable: datatable,
+  num_nodes: num_nodes_value, #Kino.Input.read(num_nodes),
+  num_messages: num_messages_value, #Kino.Input.read(num_messages),
+  use_random: use_random_value, #Kino.Input.read(use_random),
+  delay_ms: delay_ms_value, # Kino.Input.read(delay_ms),
+  delay_msg_ms: delay_msg_ms_value, # Kino.Input.read(delay_msg_ms),
+})
+
+Kino.Control.tagged_stream(
+  num_nodes: num_nodes,
+  num_messages: num_messages,
+  use_random: use_random,
+  delay_ms: delay_ms,
+  delay_msg_ms: delay_msg_ms,
+  setup_button: setup_button,
+  send_button: send_button,
+  reset_button: reset_button
+)
+|> Kino.listen(fn {key, event} ->
+
+  case event.type do
+    :change ->
+      if Map.has_key?(event, :type) and Map.has_key?(event, :value) do
+        IO.puts(":config #{key} #{event.value}")
+        GenServer.call(ui_pid, { :config, key, event.value })
+      end
+    :click ->
+      case key do
+        :setup_button -> GenServer.call(ui_pid, :start_sim, 30_000)
+        :send_button -> GenServer.call(ui_pid, :send_messages, 30_000)
+        :reset_button -> GenServer.call(ui_pid, :reset)
+      end
+  end
+
+  IO.puts("#{key}, #{inspect(event)}")
+  #IO.inspect(event, label: "event")
+end)
+```

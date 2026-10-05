@@ -1,0 +1,333 @@
+# Automerge Conflict Resolution
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.15.3"},
+  {:iroh_ex, path: Path.expand("../")},
+  {:rustler, "~> 0.36.1", override: true},
+  {:rustler_precompiled, "~> 0.7"},
+  {:jason, "~> 1.4"}
+])
+```
+
+## Introduction
+
+This livebook explores how **Automerge handles conflicts** when multiple users edit the same document simultaneously.
+
+Key concepts:
+
+* **Concurrent edits** - Changes made without knowledge of each other
+* **Automatic resolution** - Automerge resolves conflicts deterministically
+* **Last-writer-wins for scalars** - When multiple actors set the same key
+* **Sequence preservation for lists** - Concurrent list edits are interleaved
+* **Counter convergence** - Counters always sum correctly
+
+## Setup
+
+```elixir
+alias IrohEx.{Native, Automerge, NodeConfig}
+
+# Create a node
+config = NodeConfig.build()
+node = Native.create_node(self(), config)
+
+IO.puts("Node created")
+```
+
+## Scenario 1: Concurrent Map Edits (Different Keys)
+
+When two branches edit different keys, both changes are preserved.
+
+```elixir
+# Create base document
+doc = Automerge.new(node)
+:ok = Automerge.put(node, doc, [], "base", "original value")
+
+IO.puts("Initial state:")
+IO.puts(Automerge.to_json(node, doc))
+
+# Fork to simulate two users
+alice_doc = Automerge.fork(node, doc)
+bob_doc = Automerge.fork(node, doc)
+
+# Alice edits key_a
+:ok = Automerge.put(node, alice_doc, [], "alice_field", "Alice was here")
+
+# Bob edits key_b
+:ok = Automerge.put(node, bob_doc, [], "bob_field", "Bob was here")
+
+IO.puts("\nAlice's view:")
+IO.puts(Automerge.to_json(node, alice_doc))
+
+IO.puts("\nBob's view:")
+IO.puts(Automerge.to_json(node, bob_doc))
+
+# Merge both into the original
+{:ok, alice_bytes} = Automerge.save(node, alice_doc)
+{:ok, bob_bytes} = Automerge.save(node, bob_doc)
+
+:ok = Automerge.merge(node, doc, alice_bytes)
+:ok = Automerge.merge(node, doc, bob_bytes)
+
+IO.puts("\nMerged result (both changes preserved):")
+IO.puts(Automerge.to_json(node, doc))
+```
+
+## Scenario 2: Concurrent Map Edits (Same Key)
+
+When two branches edit the **same** key, Automerge uses "last-writer-wins" based on actor ID ordering.
+
+```elixir
+# Create base document
+doc2 = Automerge.new(node)
+:ok = Automerge.put(node, doc2, [], "status", "pending")
+
+IO.puts("Initial state:")
+IO.puts(Automerge.to_json(node, doc2))
+
+# Fork
+alice_doc2 = Automerge.fork(node, doc2)
+bob_doc2 = Automerge.fork(node, doc2)
+
+# Both edit the SAME key concurrently
+:ok = Automerge.put(node, alice_doc2, [], "status", "approved by Alice")
+:ok = Automerge.put(node, bob_doc2, [], "status", "rejected by Bob")
+
+IO.puts("\nAlice sets status to: #{Automerge.get(node, alice_doc2, [], "status")}")
+IO.puts("Bob sets status to: #{Automerge.get(node, bob_doc2, [], "status")}")
+
+# Merge into original
+{:ok, alice_bytes2} = Automerge.save(node, alice_doc2)
+{:ok, bob_bytes2} = Automerge.save(node, bob_doc2)
+
+:ok = Automerge.merge(node, doc2, alice_bytes2)
+:ok = Automerge.merge(node, doc2, bob_bytes2)
+
+final_status = Automerge.get(node, doc2, [], "status")
+IO.puts("\nFinal status after merge: #{final_status}")
+IO.puts("(Winner determined by actor ID ordering)")
+IO.puts("\nFull merged state:")
+IO.puts(Automerge.to_json(node, doc2))
+```
+
+## Scenario 3: Concurrent List Operations
+
+When two users add items to a list concurrently, items are interleaved deterministically.
+
+```elixir
+# Create document with a list
+doc3 = Automerge.new(node)
+{:ok, _} = Automerge.create_list(node, doc3, [], "items")
+:ok = Automerge.list_push(node, doc3, ["items"], "item_0")
+
+IO.puts("Initial list:")
+IO.puts(Automerge.to_json(node, doc3))
+
+# Fork
+alice_doc3 = Automerge.fork(node, doc3)
+bob_doc3 = Automerge.fork(node, doc3)
+
+# Alice adds items
+:ok = Automerge.list_push(node, alice_doc3, ["items"], "alice_item_1")
+:ok = Automerge.list_push(node, alice_doc3, ["items"], "alice_item_2")
+
+# Bob adds items
+:ok = Automerge.list_push(node, bob_doc3, ["items"], "bob_item_1")
+:ok = Automerge.list_push(node, bob_doc3, ["items"], "bob_item_2")
+
+IO.puts("\nAlice's list:")
+for i <- 0..(Automerge.list_length(node, alice_doc3, ["items"]) - 1) do
+  IO.puts("  #{i}: #{Automerge.list_get(node, alice_doc3, ["items"], i)}")
+end
+
+IO.puts("\nBob's list:")
+for i <- 0..(Automerge.list_length(node, bob_doc3, ["items"]) - 1) do
+  IO.puts("  #{i}: #{Automerge.list_get(node, bob_doc3, ["items"], i)}")
+end
+
+# Merge
+{:ok, alice_bytes3} = Automerge.save(node, alice_doc3)
+{:ok, bob_bytes3} = Automerge.save(node, bob_doc3)
+
+:ok = Automerge.merge(node, doc3, alice_bytes3)
+:ok = Automerge.merge(node, doc3, bob_bytes3)
+
+IO.puts("\nMerged list (both users' items preserved):")
+for i <- 0..(Automerge.list_length(node, doc3, ["items"]) - 1) do
+  IO.puts("  #{i}: #{Automerge.list_get(node, doc3, ["items"], i)}")
+end
+```
+
+## Scenario 4: Concurrent Counter Updates
+
+Counters always converge correctly, summing all increments.
+
+```elixir
+# Create document with counter
+doc4 = Automerge.new(node)
+_ = Automerge.counter_increment(node, doc4, [], "score", 10)
+
+IO.puts("Initial score: #{Automerge.counter_get(node, doc4, [], "score")}")
+
+# Fork
+alice_doc4 = Automerge.fork(node, doc4)
+bob_doc4 = Automerge.fork(node, doc4)
+charlie_doc4 = Automerge.fork(node, doc4)
+
+# Each user increments concurrently
+_ = Automerge.counter_increment(node, alice_doc4, [], "score", 5)
+_ = Automerge.counter_increment(node, bob_doc4, [], "score", 3)
+_ = Automerge.counter_increment(node, charlie_doc4, [], "score", 7)
+
+IO.puts("\nAfter concurrent increments:")
+IO.puts("  Alice (+5): #{Automerge.counter_get(node, alice_doc4, [], "score")}")
+IO.puts("  Bob (+3): #{Automerge.counter_get(node, bob_doc4, [], "score")}")
+IO.puts("  Charlie (+7): #{Automerge.counter_get(node, charlie_doc4, [], "score")}")
+
+# Merge all
+{:ok, alice_bytes4} = Automerge.save(node, alice_doc4)
+{:ok, bob_bytes4} = Automerge.save(node, bob_doc4)
+{:ok, charlie_bytes4} = Automerge.save(node, charlie_doc4)
+
+:ok = Automerge.merge(node, doc4, alice_bytes4)
+:ok = Automerge.merge(node, doc4, bob_bytes4)
+:ok = Automerge.merge(node, doc4, charlie_bytes4)
+
+final_score = Automerge.counter_get(node, doc4, [], "score")
+IO.puts("\nFinal merged score: #{final_score}")
+IO.puts("Expected: 10 (initial) + 5 (Alice) + 3 (Bob) + 7 (Charlie) = 25")
+```
+
+## Scenario 5: Concurrent Text Edits
+
+Text CRDTs handle concurrent character-level edits.
+
+```elixir
+# Create document with text
+doc5 = Automerge.new(node)
+{:ok, _} = Automerge.create_text(node, doc5, [], "content", "Hello World")
+
+IO.puts("Initial text: #{Automerge.text_get(node, doc5, ["content"])}")
+
+# Fork
+alice_doc5 = Automerge.fork(node, doc5)
+bob_doc5 = Automerge.fork(node, doc5)
+
+# Alice inserts at the beginning
+:ok = Automerge.text_insert(node, alice_doc5, ["content"], 0, ">> ")
+
+# Bob appends at the end
+bob_text = Automerge.text_get(node, bob_doc5, ["content"])
+:ok = Automerge.text_insert(node, bob_doc5, ["content"], String.length(bob_text), " <<")
+
+IO.puts("\nAlice's text: #{Automerge.text_get(node, alice_doc5, ["content"])}")
+IO.puts("Bob's text: #{Automerge.text_get(node, bob_doc5, ["content"])}")
+
+# Merge
+{:ok, alice_bytes5} = Automerge.save(node, alice_doc5)
+{:ok, bob_bytes5} = Automerge.save(node, bob_doc5)
+
+:ok = Automerge.merge(node, doc5, alice_bytes5)
+:ok = Automerge.merge(node, doc5, bob_bytes5)
+
+IO.puts("\nMerged text: #{Automerge.text_get(node, doc5, ["content"])}")
+```
+
+## Understanding Conflict Resolution
+
+```elixir
+Kino.Markdown.new("""
+## How Automerge Resolves Conflicts
+
+| Data Type | Concurrent Edit | Resolution Strategy |
+|-----------|-----------------|---------------------|
+| **Map (different keys)** | Alice sets A, Bob sets B | Both preserved |
+| **Map (same key)** | Alice sets X=1, Bob sets X=2 | Last-writer-wins (by actor ID) |
+| **List** | Alice appends A, Bob appends B | Both items interleaved |
+| **Text** | Alice inserts at pos 5, Bob at pos 10 | Both insertions preserved |
+| **Counter** | Alice +5, Bob +3 | Sum: +8 |
+
+### Key Properties
+
+1. **Deterministic**: Given the same set of changes, all nodes reach the same state
+2. **Commutative**: Order of merging doesn't matter
+3. **Idempotent**: Merging the same changes twice has no additional effect
+
+### Best Practices
+
+1. Use **counters** for values that should aggregate (votes, counts)
+2. Use **lists** for ordered collections where concurrent additions are OK
+3. Use **maps** with unique keys when possible to avoid same-key conflicts
+4. Design your data model to minimize scalar conflicts on the same key
+""")
+```
+
+## Interactive Conflict Demo
+
+```elixir
+# Create interactive demo
+conflict_form =
+  Kino.Control.form(
+    [
+      alice_value: Kino.Input.text("Alice's value", default: "Alice's data"),
+      bob_value: Kino.Input.text("Bob's value", default: "Bob's data"),
+      key: Kino.Input.text("Key to set", default: "shared_field")
+    ],
+    submit: "Create Conflict & Merge"
+  )
+
+Kino.render(conflict_form)
+
+result_frame = Kino.Frame.new()
+Kino.render(result_frame)
+
+Kino.listen(conflict_form, fn event ->
+  %{data: %{alice_value: alice_val, bob_value: bob_val, key: key}} = event
+
+  # Create fresh documents
+  base = Automerge.new(node)
+  :ok = Automerge.put(node, base, [], key, "original")
+
+  alice = Automerge.fork(node, base)
+  bob = Automerge.fork(node, base)
+
+  :ok = Automerge.put(node, alice, [], key, alice_val)
+  :ok = Automerge.put(node, bob, [], key, bob_val)
+
+  {:ok, alice_b} = Automerge.save(node, alice)
+  {:ok, bob_b} = Automerge.save(node, bob)
+
+  :ok = Automerge.merge(node, base, alice_b)
+  :ok = Automerge.merge(node, base, bob_b)
+
+  final = Automerge.get(node, base, [], key)
+
+  result =
+    Kino.Markdown.new("""
+    ### Conflict Resolution Result
+
+    - **Key**: `#{key}`
+    - **Alice set**: `#{alice_val}`
+    - **Bob set**: `#{bob_val}`
+    - **Winner**: `#{final}`
+
+    ```json
+    #{Automerge.to_json(node, base)}
+    ```
+    """)
+
+  Kino.Frame.render(result_frame, result)
+end)
+```
+
+## Summary
+
+This livebook demonstrated how Automerge handles various conflict scenarios:
+
+1. **Different keys** - All changes preserved
+2. **Same key (scalar)** - Deterministic last-writer-wins
+3. **Lists** - Concurrent items interleaved
+4. **Counters** - Values correctly summed
+5. **Text** - Character-level merging
+
+Automerge's CRDT approach ensures that all nodes eventually converge to the same state, regardless of the order in which they receive updates.
