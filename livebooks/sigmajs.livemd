@@ -226,7 +226,6 @@ defmodule SigmaGraph do
     import debounce from 'https://cdn.jsdelivr.net/npm/debounce@2.2.0/+esm';
     import { downloadAsImage } from 'https://cdn.jsdelivr.net/npm/@sigma/export-image@3.0.0/+esm';
     import { NodeBorderProgram } from 'https://cdn.jsdelivr.net/npm/@sigma/node-border@3.0.0/+esm';
-    import sigmanodeImage from 'https://cdn.jsdelivr.net/npm/@sigma/node-image@3.0.0/+esm';
 
     const { circular } = graphologyLayout;
 
