@@ -12,7 +12,7 @@ defmodule IrohExTest do
   @delay_after_send 5000
   @max_send_concurrency 32
 
-  @msg_timeout 30_000
+  # @msg_timeout 30_000
 
   # Use the builder function for default config
   defp default_node_config do
@@ -701,27 +701,26 @@ defmodule IrohExTest do
     |> Enum.reverse()
   end
 
-  defp count_messages(acc \\ %{received: 0, neighbor_up: 0, neighbor_down: 0, discovered: 0, other: 0}, timeout \\ 500) do
-    receive do
-      {:iroh_gossip_message_received, _node_source, _msg} ->
-        count_messages(%{acc | received: acc.received + 1}, timeout)
+  # defp count_messages(acc \\ %{received: 0, neighbor_up: 0, neighbor_down: 0, discovered: 0, other: 0}, timeout \\ 500) do
+  #   receive do
+  #     {:iroh_gossip_message_received, _node_source, _msg} ->
+  #       count_messages(%{acc | received: acc.received + 1}, timeout)
 
-      {:iroh_gossip_node_discovered, _node_source, _node_discovered} ->
-        count_messages(%{acc | discovered: acc.discovered + 1}, timeout)
+  #     {:iroh_gossip_node_discovered, _node_source, _node_discovered} ->
+  #       count_messages(%{acc | discovered: acc.discovered + 1}, timeout)
 
-      {:iroh_gossip_node_up, node_source, node_up, remote_info, peers_count} ->
-        IO.puts(":iroh_gossip_node_up #{node_source} #{node_up} #{remote_info} #{peers_count}")
-        count_messages(%{acc | neighbor_up: acc.neighbor_up + 1}, timeout)
+  #     {:iroh_gossip_node_up, node_source, node_up, remote_info, peers_count} ->
+  #       IO.puts(":iroh_gossip_node_up #{node_source} #{node_up} #{remote_info} #{peers_count}")
+  #       count_messages(%{acc | neighbor_up: acc.neighbor_up + 1}, timeout)
 
-
-      other_event ->
-        IO.puts("Other event #{inspect(other_event)}")
-        count_messages(%{acc | other: acc.other + 1}, timeout)
-    after
-      # Stop after a longer timeout
-      timeout -> acc
-    end
-  end
+  #     other_event ->
+  #       IO.puts("Other event #{inspect(other_event)}")
+  #       count_messages(%{acc | other: acc.other + 1}, timeout)
+  #   after
+  #     # Stop after a longer timeout
+  #     timeout -> acc
+  #   end
+  # end
 end
 
 defmodule GossipParser do
